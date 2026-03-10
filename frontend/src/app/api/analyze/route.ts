@@ -18,6 +18,7 @@ interface VlmAnalyzeOutput {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const requestStart = Date.now();
   try {
     const body = await req.json() as { image?: string };
 
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         content: [
           {
             type: 'image_url',
-            image_url: { url: body.image, detail: 'high' },
+            image_url: { url: body.image },
           },
           {
             type: 'text',
@@ -64,14 +65,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const rawContent = await callOpenRouter(messages, {
       temperature: 0.1,
       maxTokens: 4096,
-      responseFormat: { type: 'json_object' },
     });
 
     let parsed: VlmAnalyzeOutput;
     try {
       parsed = parseVlmJson<VlmAnalyzeOutput>(rawContent);
     } catch {
-      console.error('[analyze] JSON 解析失败，原始内容:', rawContent);
+      console.error(
+        `[analyze][${new Date().toISOString()}] JSON 解析失败, 总耗时:`,
+        Date.now() - requestStart,
+        'ms, 原始内容:',
+        rawContent
+      );
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: { code: 'VLM_ERROR', message: 'AI 返回格式错误，请重试' } },
         { status: 500 }
@@ -94,10 +99,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       createdAt: new Date().toISOString(),
     };
 
+    console.log(
+      `[analyze][${new Date().toISOString()}] 请求成功, 总耗时:`,
+      Date.now() - requestStart,
+      'ms'
+    );
     return NextResponse.json<ApiResponse<AnalysisResult>>({ success: true, data: result });
   } catch (err) {
     const message = err instanceof Error ? err.message : '服务器内部错误';
-    console.error('[analyze] 错误:', message);
+    console.error(
+      `[analyze][${new Date().toISOString()}] 错误, 总耗时:`,
+      Date.now() - requestStart,
+      'ms, 信息:',
+      message
+    );
     return NextResponse.json<ApiResponse<never>>(
       { success: false, error: { code: 'VLM_ERROR', message } },
       { status: 500 }

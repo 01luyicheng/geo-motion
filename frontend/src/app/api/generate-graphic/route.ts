@@ -42,7 +42,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
       contentParts.push({
         type: 'image_url',
-        image_url: { url: body.sketch, detail: 'high' },
+        image_url: { url: body.sketch },
       });
       contentParts.push({
         type: 'text',
@@ -63,7 +63,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const rawContent = await callOpenRouter(messages, {
       temperature: 0.1,
       maxTokens: 4096,
-      responseFormat: { type: 'json_object' },
     });
 
     let parsed: VlmGenerateOutput;
