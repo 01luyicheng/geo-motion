@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, Suspense } from 'react';
+import { useState, useCallback, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ScanSearch,
@@ -8,76 +8,80 @@ import {
   ArrowRight,
   Loader2,
   AlertCircle,
+  X,
 } from 'lucide-react';
 import { ImageUploader } from '@/components/ImageUploader';
 import { cn, generateId, setStoredResult } from '@/lib/utils';
-import type { AnalysisResult, GraphicResult, ApiResponse, UploadMode } from '@/types';
+import { parseVlmJson } from '@/lib/openrouter';
+import type { AnalysisResult, ApiResponse, UploadMode } from '@/types';
 
-// ── 运行时类型验证辅助函数 ──────────────────────────────────────
+// ── SSE 流式请求处理 ───────────────────────────────────────────
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+interface StreamResult {
+  content: string;
+  error?: string;
 }
 
-function isString(value: unknown): value is string {
-  return typeof value === 'string';
-}
+async function streamRequest(
+  url: string,
+  body: unknown,
+  onChunk: (chunk: string) => void
+): Promise<StreamResult> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(isString);
-}
-
-function validateAnalysisResult(data: unknown): data is AnalysisResult {
-  if (!isObject(data)) return false;
-  return (
-    isString(data.id) &&
-    isString(data.geogebra) &&
-    isStringArray(data.conditions) &&
-    isString(data.goal) &&
-    isStringArray(data.solution) &&
-    isString(data.createdAt)
-  );
-}
-
-function validateGraphicResult(data: unknown): data is GraphicResult {
-  if (!isObject(data)) return false;
-  const format = data.format;
-  return (
-    isString(data.id) &&
-    isString(data.geogebra) &&
-    (format === 'svg' || format === 'png') &&
-    (data.content === undefined || isString(data.content)) &&
-    isString(data.createdAt)
-  );
-}
-
-function validateApiResponse<T>(
-  json: unknown,
-  validateData: (data: unknown) => data is T
-): ApiResponse<T> {
-  if (!isObject(json)) {
-    throw new Error('API 响应格式无效：期望对象');
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({ error: { message: '请求失败' } }));
+    throw new Error((errorData as ApiResponse<never>).error?.message ?? '请求失败');
   }
 
-  // 验证 success 字段
-  if (typeof json.success !== 'boolean') {
-    throw new Error('API 响应格式无效：缺少 success 字段');
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error('无法读取响应流');
   }
 
-  // 如果 success 为 false，验证 error 结构
-  if (!json.success) {
-    if (isObject(json.error) && isString(json.error.code) && isString(json.error.message)) {
-      return { success: false, error: { code: json.error.code, message: json.error.message } };
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullContent = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') continue;
+
+        try {
+          const parsed = JSON.parse(data) as { content?: string; error?: string };
+          if (parsed.error) {
+            return { content: fullContent, error: parsed.error };
+          }
+          if (parsed.content) {
+            fullContent += parsed.content;
+            onChunk(parsed.content);
+          }
+        } catch {
+          // 忽略解析错误
+        }
+      }
     }
-    return { success: false, error: { code: 'UNKNOWN', message: '未知错误' } };
+  } finally {
+    reader.releaseLock();
   }
 
-  // 如果 success 为 true，验证 data 结构
-  if (!validateData(json.data)) {
-    throw new Error('API 响应数据结构无效');
-  }
-
-  return { success: true, data: json.data };
+  return { content: fullContent };
 }
 
 // ── 首页内容（需要 useSearchParams，放入 Suspense）──────────────
@@ -94,25 +98,53 @@ function HomeContent() {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [streamContent, setStreamContent] = useState<string>('');
 
   const handleAnalyze = useCallback(async () => {
     if (!image) return;
     setLoading(true);
     setError(null);
+    setStreamContent('');
 
     try {
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image }),
-      });
-      const rawJson = await res.json();
-      const json = validateApiResponse(rawJson, validateAnalysisResult);
-      if (!json.success || !json.data) {
-        throw new Error(json.error?.message ?? '分析失败，请重试');
+      const result = await streamRequest(
+        '/api/analyze',
+        { image },
+        (chunk) => setStreamContent((prev) => prev + chunk)
+      );
+
+      if (result.error) {
+        throw new Error(result.error);
       }
+
+      let parsed: {
+        geogebra: string;
+        conditions: string[];
+        goal: string;
+        solution: string[];
+      };
+      try {
+        parsed = parseVlmJson(result.content);
+      } catch {
+        console.error('[analyze] JSON 解析失败，原始内容:', result.content);
+        throw new Error('AI 返回格式错误，请重试');
+      }
+
+      if (!parsed.geogebra || !parsed.conditions || !parsed.goal) {
+        throw new Error('未能从图片中识别几何图形');
+      }
+
+      const analysisResult: AnalysisResult = {
+        id: `analysis_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        geogebra: parsed.geogebra,
+        conditions: parsed.conditions,
+        goal: parsed.goal,
+        solution: parsed.solution ?? [],
+        createdAt: new Date().toISOString(),
+      };
+
       const id = generateId();
-      setStoredResult(`analysis:${id}`, json.data);
+      setStoredResult(`analysis:${id}`, analysisResult);
       router.push(`/analyze/${id}?type=analyze`);
     } catch (err) {
       setError(err instanceof Error ? err.message : '未知错误');
@@ -125,27 +157,46 @@ function HomeContent() {
     if (!text.trim()) return;
     setLoading(true);
     setError(null);
+    setStreamContent('');
 
     try {
-      const res = await fetch('/api/generate-graphic', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, sketch: sketch ?? undefined }),
-      });
-      const rawJson = await res.json();
-      const json = validateApiResponse(rawJson, validateGraphicResult);
-      if (!json.success || !json.data) {
-        throw new Error(json.error?.message ?? '生成失败，请重试');
+      const result = await streamRequest(
+        '/api/generate-graphic',
+        { text, sketch: sketch ?? undefined },
+        (chunk) => setStreamContent((prev) => prev + chunk)
+      );
+
+      if (result.error) {
+        throw new Error(result.error);
       }
-      const id = generateId();
-      setStoredResult(`analysis:${id}`, {
-        id: json.data.id,
-        geogebra: json.data.geogebra,
-        conditions: [],
-        goal: '',
+
+      let parsed: {
+        geogebra: string;
+        conditions: string[];
+        goal: string;
+      };
+      try {
+        parsed = parseVlmJson(result.content);
+      } catch {
+        console.error('[generate-graphic] JSON 解析失败，原始内容:', result.content);
+        throw new Error('AI 返回格式错误，请重试');
+      }
+
+      if (!parsed.geogebra) {
+        throw new Error('图形生成失败，请检查题目描述');
+      }
+
+      const graphicResult: AnalysisResult = {
+        id: `graphic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        geogebra: parsed.geogebra,
+        conditions: parsed.conditions ?? [],
+        goal: parsed.goal ?? '',
         solution: [],
-        createdAt: json.data.createdAt,
-      } satisfies AnalysisResult);
+        createdAt: new Date().toISOString(),
+      };
+
+      const id = generateId();
+      setStoredResult(`analysis:${id}`, graphicResult);
       router.push(`/analyze/${id}?type=generate`);
     } catch (err) {
       setError(err instanceof Error ? err.message : '未知错误');
@@ -153,6 +204,18 @@ function HomeContent() {
       setLoading(false);
     }
   }, [text, sketch, router]);
+
+  // 键盘快捷键：Ctrl/Cmd + Enter 提交
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if (mode === 'analyze' && image && !loading) void handleAnalyze();
+        if (mode === 'generate' && text.trim() && !loading) void handleGenerate();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [mode, image, text, loading, handleAnalyze, handleGenerate]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">
@@ -170,7 +233,7 @@ function HomeContent() {
       <div className="flex overflow-hidden rounded-xl border bg-card shadow-sm">
         <button
           type="button"
-          onClick={() => { setMode('analyze'); setError(null); }}
+          onClick={() => { setMode('analyze'); setError(null); setStreamContent(''); }}
           className={cn(
             'flex flex-1 items-center justify-center gap-2 px-6 py-4 text-sm font-medium transition-colors',
             mode === 'analyze'
@@ -183,7 +246,7 @@ function HomeContent() {
         </button>
         <button
           type="button"
-          onClick={() => { setMode('generate'); setError(null); }}
+          onClick={() => { setMode('generate'); setError(null); setStreamContent(''); }}
           className={cn(
             'flex flex-1 items-center justify-center gap-2 px-6 py-4 text-sm font-medium transition-colors',
             mode === 'generate'
@@ -235,7 +298,10 @@ function HomeContent() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium">题目文本 <span className="text-destructive">*</span></label>
+              <div className="mb-1.5 flex items-center justify-between">
+                <label className="text-sm font-medium">题目文本 <span className="text-destructive">*</span></label>
+                <span className="text-xs text-muted-foreground">{text.length > 0 ? `${text.length} 字` : ''}</span>
+              </div>
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -269,10 +335,43 @@ function HomeContent() {
           </>
         )}
 
+        {/* 加载进度显示 */}
+        {loading && (
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span className="text-sm font-medium text-primary">
+                AI 正在{mode === 'analyze' ? '识别图形并生成命令' : '生成几何图形'}…
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-primary/20">
+                <div className="h-full animate-progress-indeterminate rounded-full bg-primary" />
+              </div>
+              {streamContent.length > 0 && (
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  已接收 {streamContent.length} 字符
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              AI 响应可能需要 10–30 秒，请耐心等候…
+            </p>
+          </div>
+        )}
+
         {error && (
           <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
+            <span className="flex-1">{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="ml-1 shrink-0 rounded-md p-1 hover:bg-destructive/20 transition-colors"
+              aria-label="关闭错误"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
       </div>
@@ -303,16 +402,21 @@ function HomeContent() {
         ].map((item) => (
           <div
             key={item.title}
-            className="rounded-xl border bg-card px-5 py-4 flex items-start gap-3 shadow-sm"
+            className="flex items-start gap-3 rounded-xl border bg-card px-5 py-4 shadow-sm"
           >
             <span className="text-2xl">{item.icon}</span>
             <div>
-              <p className="font-medium text-sm">{item.title}</p>
+              <p className="text-sm font-medium">{item.title}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">{item.desc}</p>
             </div>
           </div>
         ))}
       </div>
+
+      {/* 快捷键提示 */}
+      <p className="text-center text-xs text-muted-foreground">
+        提示：按 <kbd className="rounded border bg-muted px-1 py-0.5 font-mono text-[10px]">Ctrl</kbd> + <kbd className="rounded border bg-muted px-1 py-0.5 font-mono text-[10px]">Enter</kbd> 快速提交
+      </p>
     </div>
   );
 }

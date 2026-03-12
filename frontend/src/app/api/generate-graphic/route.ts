@@ -1,30 +1,27 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import {
-  callOpenRouter,
-  parseVlmJson,
+  streamOpenRouter,
   GENERATE_SYSTEM_PROMPT,
   type OpenRouterMessage,
   type OpenRouterContentPart,
 } from '@/lib/openrouter';
-import type { GraphicResult, ApiResponse } from '@/types';
+
+// 允许路由最多执行 300 秒（AI 响应可能较慢）
+export const maxDuration = 300;
 
 // 10MB 的 base64 编码长度限制（base64 编码会增加约 33%）
 const MAX_BASE64_LENGTH = 13_000_000;
 
-interface VlmGenerateOutput {
-  geogebra: string;
-  conditions: string[];
-  goal: string;
-}
-
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export async function POST(req: NextRequest) {
+  const requestStart = Date.now();
+  
   try {
     const body = await req.json() as { text?: string; sketch?: string };
 
     if (!body.text || body.text.trim().length === 0) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: { code: 'INVALID_REQUEST', message: '请提供题目文本' } },
-        { status: 400 }
+      return new Response(
+        JSON.stringify({ success: false, error: { code: 'INVALID_REQUEST', message: '请提供题目文本' } }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -35,9 +32,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (body.sketch && body.sketch.startsWith('data:image/')) {
       // 校验草图 base64 大小限制（约 10MB）
       if (body.sketch.length > MAX_BASE64_LENGTH) {
-        return NextResponse.json<ApiResponse<never>>(
-          { success: false, error: { code: 'SKETCH_TOO_LARGE', message: '草图大小超过 10MB 限制' } },
-          { status: 400 }
+        return new Response(
+          JSON.stringify({ success: false, error: { code: 'SKETCH_TOO_LARGE', message: '草图大小超过 10MB 限制' } }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
       }
       contentParts.push({
@@ -60,43 +57,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { role: 'user', content: contentParts },
     ];
 
-    const rawContent = await callOpenRouter(messages, {
+    const stream = await streamOpenRouter(messages, {
       temperature: 0.1,
       maxTokens: 4096,
     });
 
-    let parsed: VlmGenerateOutput;
-    try {
-      parsed = parseVlmJson<VlmGenerateOutput>(rawContent);
-    } catch {
-      console.error('[generate-graphic] JSON 解析失败，原始内容:', rawContent);
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: { code: 'GENERATION_FAILED', message: 'AI 返回格式错误，请重试' } },
-        { status: 500 }
-      );
-    }
+    console.log(
+      `[generate-graphic][${new Date().toISOString()}] 开始流式响应, 耗时:`,
+      Date.now() - requestStart,
+      'ms'
+    );
 
-    if (!parsed.geogebra) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: { code: 'GENERATION_FAILED', message: '图形生成失败，请检查题目描述' } },
-        { status: 400 }
-      );
-    }
-
-    const result: GraphicResult = {
-      id: `graphic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      geogebra: parsed.geogebra,
-      format: 'svg',
-      createdAt: new Date().toISOString(),
-    };
-
-    return NextResponse.json<ApiResponse<GraphicResult>>({ success: true, data: result });
+    // 返回 SSE 流
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : '服务器内部错误';
     console.error('[generate-graphic] 错误:', message);
-    return NextResponse.json<ApiResponse<never>>(
-      { success: false, error: { code: 'GENERATION_FAILED', message } },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ success: false, error: { code: 'GENERATION_FAILED', message } }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }

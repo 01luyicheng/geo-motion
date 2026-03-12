@@ -13,6 +13,7 @@ import {
   ListChecks,
   Target,
   BookOpen,
+  Share2,
 } from 'lucide-react';
 import { GeoGebraViewer } from '@/components/GeoGebraViewer';
 import { AnimationControls } from '@/components/AnimationControls';
@@ -54,6 +55,7 @@ function AnalyzeContent({ id }: { id: string }) {
   // 命令面板展开控制
   const [cmdExpanded, setCmdExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
 
   // 解题步骤展开
   const [solutionExpanded, setSolutionExpanded] = useState(true);
@@ -192,6 +194,13 @@ function AnalyzeContent({ id }: { id: string }) {
     setTimeout(() => setCopied(false), 2000);
   }, [result]);
 
+  // 分享链接
+  const handleShare = useCallback(async () => {
+    await navigator.clipboard.writeText(window.location.href);
+    setUrlCopied(true);
+    setTimeout(() => setUrlCopied(false), 2000);
+  }, []);
+
   if (notFound) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
@@ -231,7 +240,18 @@ function AnalyzeContent({ id }: { id: string }) {
         <h1 className="text-lg font-semibold">
           {type === 'generate' ? '精确几何图形' : '几何题分析结果'}
         </h1>
-        <div className="w-16" />
+        <button
+          type="button"
+          onClick={handleShare}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          title="复制分享链接"
+        >
+          {urlCopied ? (
+            <><Check className="h-4 w-4 text-green-600" /> <span className="text-green-600">已复制</span></>
+          ) : (
+            <><Share2 className="h-4 w-4" /> 分享</>
+          )}
+        </button>
       </div>
 
       {/* 主布局：左侧图形 + 右侧信息 */}

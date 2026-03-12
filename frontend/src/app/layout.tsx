@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export const metadata: Metadata = {
   title: 'GeoMotion — 几何题可视化教学工具',
@@ -13,8 +14,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN">
-      <body className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+    <html lang="zh-CN" suppressHydrationWarning>
+      <head>
+        {/* 主题初始化脚本：避免 hydration 闪烁 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('theme');var p=window.matchMedia('(prefers-color-scheme: dark)').matches;if(t==='dark'||(t!=='light'&&p)){document.documentElement.classList.add('dark');}}catch(e){}})();`,
+          }}
+        />
+      </head>
+      <body className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-900">
         <header className="sticky top-0 z-50 w-full border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
           <div className="container mx-auto flex h-14 items-center px-4">
             <a href="/" className="flex items-center gap-2 font-semibold text-primary">
@@ -39,14 +48,16 @@ export default function RootLayout({
               <a href="/?mode=generate" className="hover:text-foreground transition-colors">
                 草图转精确图
               </a>
+              <ThemeToggle />
             </nav>
           </div>
         </header>
         <main className="container mx-auto px-4 py-8">
           {children}
         </main>
-        <footer className="border-t bg-white/50 py-4 text-center text-xs text-muted-foreground">
-          GeoMotion · 基于 AI + GeoGebra 的几何教学工具
+        <footer className="border-t bg-white/50 dark:bg-slate-900/50 py-6 text-center text-xs text-muted-foreground">
+          <p>GeoMotion · 基于 AI + GeoGebra 的几何教学工具</p>
+          <p className="mt-1 opacity-60">Powered by OpenRouter · 数据仅存于本地浏览器</p>
         </footer>
       </body>
     </html>

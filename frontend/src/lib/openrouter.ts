@@ -4,7 +4,7 @@
  */
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'moonshotai/kimi-k2.5';
+const MODEL = 'qwen/qwen3-vl-235b-a22b-instruct'; // 阿里通义千问多模态模型，国内可用，非思考模式
 
 export interface OpenRouterMessage {
   role: 'system' | 'user' | 'assistant';
@@ -27,7 +27,7 @@ export interface OpenRouterOptions {
 }
 
 /**
- * 调用 OpenRouter API
+ * 调用 OpenRouter API（非流式）
  */
 export async function callOpenRouter(
   messages: OpenRouterMessage[],
@@ -39,15 +39,16 @@ export async function callOpenRouter(
     throw new Error('OPENROUTER_API_KEY 环境变量未设置');
   }
 
-  // 设置 120 秒超时
+  // 设置 600 秒超时（10分钟）
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120_000);
+  const timeoutId = setTimeout(() => controller.abort(), 600_000);
 
   const requestBody = JSON.stringify({
     model: MODEL,
     messages,
     temperature: options.temperature ?? 0.2,
     max_tokens: options.maxTokens ?? 4096,
+    // reasoning: { effort: "low" }, // 禁用思考模式以提高速度
     ...(options.responseFormat && { response_format: options.responseFormat }),
   });
 
@@ -104,7 +105,12 @@ export async function callOpenRouter(
     );
 
     const typedData = data as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{ 
+        message?: { 
+          content?: string;
+          reasoning_details?: Array<{ type?: string; text?: string }>;
+        } 
+      }>;
       error?: { message?: string; code?: number };
     };
 
@@ -119,7 +125,9 @@ export async function callOpenRouter(
       throw new Error(`OpenRouter 错误: ${typedData.error.message ?? '未知错误'}`);
     }
 
+    // 只使用 content，忽略 reasoning_details（CoT思维链）
     const content = typedData.choices?.[0]?.message?.content;
+
     if (!content) {
       console.error(
         `[OpenRouter][${new Date().toISOString()}] 返回内容为空, 总耗时:`,
@@ -141,11 +149,11 @@ export async function callOpenRouter(
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       console.error(
-        `[OpenRouter][${new Date().toISOString()}] 请求超时 (120s), 总耗时:`,
+        `[OpenRouter][${new Date().toISOString()}] 请求超时 (600s), 总耗时:`,
         Date.now() - requestStart,
         'ms'
       );
-      throw new Error('API 请求超时，请稍后重试');
+      throw new Error('API 请求超时（10分钟），请稍后重试');
     }
     throw err;
   } finally {
@@ -153,42 +161,222 @@ export async function callOpenRouter(
   }
 }
 
-/** ── GeoGebra 系统提示 ─────────────────────────────────────────── */
+/**
+ * 流式调用 OpenRouter API
+ * 使用 TransformStream 处理 SSE 数据
+ */
+export async function streamOpenRouter(
+  messages: OpenRouterMessage[],
+  options: OpenRouterOptions = {}
+): Promise<ReadableStream<Uint8Array>> {
+  const requestStart = Date.now();
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY 环境变量未设置');
+  }
 
-export const ANALYZE_SYSTEM_PROMPT = `你是一位精通几何教学的AI助手，具有计算机代数和GeoGebra命令生成能力。
+  const requestBody = JSON.stringify({
+    model: MODEL,
+    messages,
+    temperature: options.temperature ?? 0.2,
+    max_tokens: options.maxTokens ?? 8192,
+    stream: true,
+    reasoning: { effort: "low" },
+    ...(options.responseFormat && { response_format: options.responseFormat }),
+  });
 
-你的任务是分析几何题目图片，并输出以下JSON格式（严格遵守，不要有markdown代码块包裹）：
+  console.log(`[OpenRouter Stream][${new Date().toISOString()}] 开始流式调用, 模型:`, MODEL);
+  console.log(`[OpenRouter Stream][${new Date().toISOString()}] 请求体大小:`, requestBody.length, '字符');
 
-{
-  "geogebra": "<多行GeoGebra命令，用\\n分隔>",
-  "conditions": ["已知条件1", "已知条件2"],
-  "goal": "求解目标",
-  "solution": ["解题步骤1", "解题步骤2", "..."]
+  // 设置 600 秒超时（10分钟）
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.log(`[OpenRouter Stream][${new Date().toISOString()}] 请求超时，中止连接`);
+    controller.abort();
+  }, 600_000);
+
+  const response = await fetch(OPENROUTER_API_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000',
+      'X-Title': 'GeoMotion',
+    },
+    body: requestBody,
+    signal: controller.signal,
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error(
+      `[OpenRouter Stream][${new Date().toISOString()}] API 错误:`,
+      response.status,
+      errorBody
+    );
+    throw new Error(`OpenRouter API 错误 (${response.status}): ${errorBody}`);
+  }
+
+  if (!response.body) {
+    throw new Error('响应 body 为空');
+  }
+
+  console.log(`[OpenRouter Stream][${new Date().toISOString()}] 开始接收流, 状态: ${response.status}`);
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let chunkCount = 0;
+
+  // 使用 TransformStream 替代 ReadableStream pull 模式
+  const transformStream = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        
+        console.log(`[OpenRouter Stream][${new Date().toISOString()}] 收到行:`, trimmed.substring(0, 100));
+        
+        if (!trimmed.startsWith('data: ')) {
+          continue;
+        }
+        
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') {
+          chunkCount++;
+          console.log(
+            `[OpenRouter Stream][${new Date().toISOString()}] 流结束, 共 ${chunkCount} 个数据块, 总耗时:`,
+            Date.now() - requestStart,
+            'ms'
+          );
+          clearTimeout(timeoutId);
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          continue;
+        }
+
+        try {
+          const parsed = JSON.parse(data) as {
+            choices?: Array<{
+              delta?: {
+                content?: string;
+                reasoning_details?: Array<{ type?: string; text?: string }>;
+              };
+            }>;
+            error?: { message?: string };
+          };
+
+          if (parsed.error) {
+            console.error(`[OpenRouter Stream] 错误:`, parsed.error);
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ error: parsed.error.message })}\n\n`)
+            );
+            continue;
+          }
+
+          const delta = parsed.choices?.[0]?.delta;
+          // 只转发 content，忽略 reasoning_details（CoT思维链），避免前端等待
+          const content = delta?.content;
+
+          if (content) {
+            chunkCount++;
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ content })}\n\n`)
+            );
+          }
+        } catch (parseErr) {
+          console.error(`[OpenRouter Stream] 解析错误:`, parseErr, 'data:', data.substring(0, 200));
+        }
+      }
+    },
+    flush(controller) {
+      clearTimeout(timeoutId);
+      if (buffer.trim()) {
+        console.log(`[OpenRouter Stream][${new Date().toISOString()}] 剩余缓冲区:`, buffer.substring(0, 100));
+      }
+    },
+  });
+
+  // 管道连接
+  return response.body.pipeThrough(transformStream);
 }
 
-GeoGebra命令规范：
-- 点：A = (0, 0)
+/** ── GeoGebra 系统提示 ─────────────────────────────────────────── */
+
+export const ANALYZE_SYSTEM_PROMPT = `你是一位精通几何教学的AI助手。
+
+【任务】只画图，不解题！不要输出任何解题过程、解题思路或求解步骤。
+
+【输出格式】直接输出纯 JSON，不要 markdown 代码块，不要任何解释：
+{
+  "geogebra": "<多行GeoGebra命令，用\\n分隔>",
+  "conditions": ["从题目提取的已知条件1", "已知条件2"],
+  "goal": "题目要求的目标",
+  "solution": []
+}
+
+注意：solution 必须为空数组 []，不要填写解题步骤！
+
+GeoGebra完整命令规范：
+
+【基础图形】
+- 点：A = (0, 0) 或 A = (2, 3)
 - 线段：s = Segment(A, B)
-- 多边形：p = Polygon(A, B, C)
-- 圆：c = Circle(O, r) 或 c = Circle(O, A)
-- 角度：α = Angle(A, B, C)  （B为顶点）
-- 文本标注：t = Text("标注内容", (x, y))
-- 设置颜色：SetColor(对象名, "颜色")，颜色如 "Blue", "Red", "Green"
-- 设置线粗：SetLineThickness(对象名, 厚度)
-- 中点：M = Midpoint(A, B)
+- 直线：l = Line(A, B)
+- 射线：r = Ray(A, B)
+- 多边形：p = Polygon(A, B, C, D)
+- 正多边形：Polygon(O, A, n)  // O中心，A顶点，n边数
+
+【圆和弧】
+- 圆（圆心+半径）：c = Circle(O, 3)
+- 圆（圆心+点）：c = Circle(O, A)
+- 圆（三点）：c = Circle(A, B, C)
+- 弧：arc = CircularArc(O, A, B)
+
+【角度和度量】
+- 角度：α = Angle(A, B, C)  // B为顶点
+- 距离：d = Distance(A, B)
+- 长度：len = Length(s)
+- 面积：area = Area(p)
+
+【特殊点】
+- 中点：M = Midpoint(A, B) 或 M = Midpoint(s)
+- 交点：I = Intersect(l1, l2)
+- 圆心：O = Center(c)
+
+【变换】
 - 垂线：l = PerpendicularLine(A, s)
-- 角平分线：bis = AngleBisector(A, B, C)
+- 平行线：l = ParallelLine(A, s)
+- 垂足：F = PerpendicularPoint(A, l)
+- 对称点：A' = Reflect(A, l)
 
-注意：
-1. 命令中不要有注释
-2. 坐标要合理，图形不要太小也不要太大（建议在(-2,-2)到(8,8)范围内）
-3. 先定义点，再构建图形
-4. 最后添加标注文字
-5. 每行只写一条命令`;
+【动点和动画】
+- 滑动条：t = Slider(0, 10)
+- 动点：P = (t, 0) 或 P = (2 + t, 3)
+- 分段运动：P = If(t < 5, (t, 0), (5, t - 5))
+- 圆周运动：P = (2 + cos(t), 2 + sin(t))
+- 启动动画：StartAnimation(t)
+- 停止动画：StopAnimation(t)
 
-export const GENERATE_SYSTEM_PROMPT = `你是一位精通几何教学的AI助手，能够根据题目文字描述（和可选的手绘草图）生成精确的几何图形GeoGebra命令。
+【样式和标注】
+- 设置颜色：SetColor(A, "Red") 或 SetColor(s, "Blue")
+- 设置线型：SetLineThickness(s, 2)
+- 设置点大小：SetPointSize(A, 3)
+- 文本标注：text = Text("A", (0, -0.5))
+- 动态文本：text = Text("t = " + t, (5, 5))
 
-你的任务是生成以下JSON格式（严格遵守，不要有markdown代码块包裹）：
+【重要限制】
+- **禁止使用 Piecewise 函数**（不支持）
+- **禁止使用 Table 函数**（不支持）
+- 所有坐标必须是数值或简单表达式
+- 函数名区分大小写`;
+
+export const GENERATE_SYSTEM_PROMPT = `你是一位精通几何教学的AI助手。
+
+请直接输出以下JSON格式结果，不要输出推理过程：
 
 {
   "geogebra": "<多行GeoGebra命令，用\\n分隔>",
@@ -207,23 +395,44 @@ GeoGebra命令规范：
 - 中点：M = Midpoint(A, B)
 - 垂线：l = PerpendicularLine(A, s)
 
-注意：
-1. 坐标精确，比例正确
-2. 图形在(-2,-2)到(10,10)范围内
-3. 先定义点，再构建图形，最后添加标注
-4. 每行只写一条命令
-5. 适合印刷用途，线条清晰`;
+重要：直接输出JSON，不要包裹在markdown代码块中，不要输出思考过程。`;
 
 /**
- * 解析 VLM 返回的 JSON（容忍 markdown 代码块）
+ * 解析 VLM 返回的 JSON（容忍 markdown 代码块和 thinking 标签）
  */
 export function parseVlmJson<T>(content: string): T {
+  let cleaned = content;
+
+  // 处理 <think> 或 <thinking> 标签（Kimi K2.5 等推理模型）
+  // 找到最后一个 </think> 或 </thinking>，提取之后的内容
+  const thinkEndIndex = Math.max(
+    cleaned.lastIndexOf('</think>'),
+    cleaned.lastIndexOf('</thinking>')
+  );
+  
+  if (thinkEndIndex > 0) {
+    // 提取结束标签后的内容
+    const tagLength = cleaned.indexOf('</thinking>') === thinkEndIndex ? 11 : 8;
+    cleaned = cleaned.slice(thinkEndIndex + tagLength).trim();
+    console.log('[parseVlmJson] 提取 think 标签后内容:', cleaned.substring(0, 200));
+  }
+
   // 去除可能的 markdown 代码块
-  const cleaned = content
+  cleaned = cleaned
     .replace(/^```json\s*/m, '')
     .replace(/^```\s*/m, '')
     .replace(/```\s*$/m, '')
     .trim();
+
+  // 如果内容不是以 { 开头，尝试找到第一个 {
+  if (!cleaned.startsWith('{')) {
+    const jsonStart = cleaned.indexOf('{');
+    const jsonEnd = cleaned.lastIndexOf('}');
+    if (jsonStart >= 0 && jsonEnd > jsonStart) {
+      cleaned = cleaned.slice(jsonStart, jsonEnd + 1);
+      console.log('[parseVlmJson] 提取 JSON 部分:', cleaned.substring(0, 200));
+    }
+  }
 
   return JSON.parse(cleaned) as T;
 }
