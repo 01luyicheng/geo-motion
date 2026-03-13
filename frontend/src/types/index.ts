@@ -50,6 +50,9 @@ export interface GeoGebraParams {
   enableShiftDragZoom?: boolean;
   showResetIcon?: boolean;
   language?: string;
+  id?: string;
+  showErrorDialogs?: boolean;
+  appletOnLoad?: () => void;
 }
 
 // window.GGBApplet 声明

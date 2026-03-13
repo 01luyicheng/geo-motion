@@ -145,6 +145,9 @@ export function GeoGebraViewer({
   const lastCommandsRef = useRef<string>('');
   // 追踪已报告错误的命令内容，避免重复报告同一错误（修复无限循环风险）
   const reportedErrorForCommandsRef = useRef<string | null>(null);
+  // 错误计数器，防止过多错误刷屏
+  const errorCountRef = useRef(0);
+  const maxErrorCount = 10; // 最多显示 10 个错误
 
   // 响应式宽度
   useEffect(() => {
@@ -152,10 +155,19 @@ export function GeoGebraViewer({
       setResolvedWidth(width);
       return;
     }
-    const el = containerRef.current?.parentElement;
-    if (el) {
-      setResolvedWidth(el.clientWidth || 700);
-    }
+    
+    const updateWidth = () => {
+      const el = containerRef.current?.parentElement;
+      if (el) {
+        setResolvedWidth(el.clientWidth || 700);
+      }
+    };
+    
+    updateWidth();
+    
+    // 添加窗口大小变化监听
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
   }, [width]);
 
   const initApplet = useCallback(async () => {
@@ -219,6 +231,8 @@ export function GeoGebraViewer({
       lastCommandsRef.current = commands;
       // 命令变化时才重置错误报告状态（避免无限循环）
       reportedErrorForCommandsRef.current = null;
+      // 重置错误计数器
+      errorCountRef.current = 0;
     }
 
     // 收集执行结果
@@ -254,13 +268,18 @@ export function GeoGebraViewer({
       } catch (err) {
         // 命令执行抛出异常
         executionResult.failedCount++;
+        errorCountRef.current += 1;
         const errorMessage = err instanceof Error ? err.message : '未知错误';
         executionResult.errors.push({
           command: trimmedCmd,
           error: errorMessage,
           index,
         });
-        console.warn('[GeoGebra] 命令执行异常:', trimmedCmd, err);
+        if (errorCountRef.current <= maxErrorCount) {
+          console.warn('[GeoGebra] 命令执行异常:', trimmedCmd, err);
+        } else if (errorCountRef.current === maxErrorCount + 1) {
+          console.warn('[GeoGebra] 错误过多，不再显示详细日志');
+        }
         return false;
       }
     };

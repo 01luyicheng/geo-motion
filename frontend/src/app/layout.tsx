@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { ThemeProvider } from '@/components/ThemeProvider';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -16,52 +17,46 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <head>
-        {/* 主题初始化脚本：避免 hydration 闪烁 */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');var p=window.matchMedia('(prefers-color-scheme: dark)').matches;if(t==='dark'||(t!=='light'&&p)){document.documentElement.classList.add('dark');}}catch(e){}})();`,
-          }}
-        />
-      </head>
-      <body className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-900">
-        <header className="sticky top-0 z-50 w-full border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-          <div className="container mx-auto flex h-14 items-center px-4">
-            <a href="/" className="flex items-center gap-2 font-semibold text-primary">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polygon points="3 11 22 2 13 21 11 13 3 11" />
-              </svg>
-              <span>GeoMotion</span>
-            </a>
-            <nav className="ml-auto flex items-center gap-4 text-sm text-muted-foreground">
-              <a href="/" className="hover:text-foreground transition-colors">
-                分析几何题
+      <body className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-950 dark:via-blue-950/20 dark:to-indigo-950/20">
+        <ThemeProvider>
+          <header className="sticky top-0 z-50 w-full border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 dark:bg-slate-900/80">
+            <div className="container mx-auto flex h-14 items-center px-4">
+              <a href="/" className="flex items-center gap-2 font-semibold text-primary">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-6 w-6"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polygon points="3 11 22 2 13 21 11 13 3 11" />
+                </svg>
+                <span>GeoMotion</span>
               </a>
-              <a href="/?mode=generate" className="hover:text-foreground transition-colors">
-                草图转精确图
-              </a>
-              <ThemeToggle />
-            </nav>
-          </div>
-        </header>
-        <main className="container mx-auto px-4 py-8">
-          <ErrorBoundary>
-            {children}
-          </ErrorBoundary>
-        </main>
-        <footer className="border-t bg-white/50 dark:bg-slate-900/50 py-6 text-center text-xs text-muted-foreground">
-          <p>GeoMotion · 基于 AI + GeoGebra 的几何教学工具</p>
-          <p className="mt-1 opacity-60">Powered by OpenRouter · 数据仅存于本地浏览器</p>
-        </footer>
+              <nav className="ml-auto flex items-center gap-4 text-sm text-muted-foreground">
+                <a href="/" className="hover:text-foreground transition-colors">
+                  分析几何题
+                </a>
+                <a href="/?mode=generate" className="hover:text-foreground transition-colors">
+                  草图转精确图
+                </a>
+                <ThemeToggle />
+              </nav>
+            </div>
+          </header>
+          <main className="container mx-auto px-4 py-8">
+            <ErrorBoundary>
+              {children}
+            </ErrorBoundary>
+          </main>
+          <footer className="border-t bg-white/50 dark:bg-slate-900/50 py-6 text-center text-xs text-muted-foreground">
+            <p>GeoMotion · 基于 AI + GeoGebra 的几何教学工具</p>
+            <p className="mt-1 opacity-60">Powered by OpenRouter · 数据仅存于本地浏览器</p>
+          </footer>
+        </ThemeProvider>
       </body>
     </html>
   );
