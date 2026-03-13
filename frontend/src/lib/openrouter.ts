@@ -1,6 +1,6 @@
 /**
  * OpenRouter API 封装
- * 模型: moonshotai/kimi-k2.5（支持视觉）
+ * 模型：qwen/qwen3-vl-235b-a22b-instruct（阿里通义千问多模态模型，国内可用，已禁用思考模式）
  */
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -49,7 +49,7 @@ export async function callOpenRouter(
     messages,
     temperature: options.temperature ?? 0.2,
     max_tokens: options.maxTokens ?? 4096,
-    // reasoning: { effort: "low" }, // 禁用思考模式以提高速度
+    reasoning: { effort: "none" }, // 禁用思考模式，提高响应速度
     ...(options.responseFormat && { response_format: options.responseFormat }),
   });
 
@@ -182,7 +182,7 @@ export async function streamOpenRouter(
     temperature: options.temperature ?? 0.2,
     max_tokens: options.maxTokens ?? 8192,
     stream: true,
-    reasoning: { effort: "low" },
+    reasoning: { effort: "none" }, // 禁用思考模式，提高响应速度
     ...(options.responseFormat && { response_format: options.responseFormat }),
   });
 
