@@ -244,16 +244,23 @@ function AnalyzeContent({ id }: { id: string }) {
 
   if (notFound) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
-        <p className="text-xl font-semibold text-muted-foreground">
-          分析结果不存在或已过期
-        </p>
+      <div className="flex flex-col items-center justify-center gap-6 py-32 text-center">
+        <div className="relative">
+          <div className="absolute inset-0 blur-3xl bg-primary/20 rounded-full" />
+          <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-primary/5 shadow-xl shadow-primary/20">
+            <AlertCircle className="h-10 w-10 text-primary" />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <p className="text-2xl font-bold text-foreground">分析结果不存在</p>
+          <p className="text-sm text-muted-foreground">结果可能已过期或被删除</p>
+        </div>
         <button
           type="button"
           onClick={() => router.push('/')}
-          className="flex items-center gap-2 rounded-lg border px-4 py-2 text-sm hover:bg-muted transition-colors"
+          className="group flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition-all hover:shadow-xl hover:shadow-primary/40 hover:scale-105"
         >
-          <ArrowLeft className="h-4 w-4" /> 返回首页
+          <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" /> 返回首页
         </button>
       </div>
     );
@@ -261,38 +268,61 @@ function AnalyzeContent({ id }: { id: string }) {
 
   if (!result) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      <div className="flex flex-col items-center justify-center gap-4 py-32">
+        <div className="relative">
+          <div className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
+          <div className="relative h-12 w-12 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+        </div>
+        <p className="text-sm font-medium text-muted-foreground animate-pulse">正在加载分析结果...</p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      {/* 顶部导航 */}
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => router.push('/')}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" /> 返回
-        </button>
-        <h1 className="text-lg font-semibold">
-          {type === 'generate' ? '精确几何图形' : '几何题分析结果'}
-        </h1>
-        <button
-          type="button"
-          onClick={handleShare}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          title="复制分享链接"
-        >
-          {urlCopied ? (
-            <><Check className="h-4 w-4 text-green-600" /> <span className="text-green-600">已复制</span></>
-          ) : (
-            <><Share2 className="h-4 w-4" /> 分享</>
-          )}
-        </button>
+    <div className="mx-auto max-w-7xl space-y-6">
+      {/* 顶部导航 - 增强视觉 */}
+      <div className="sticky top-0 z-50 backdrop-blur-xl bg-background/80 border-b bg-gradient-to-r from-background via-background to-transparent">
+        <div className="flex items-center justify-between py-4">
+          <button
+            type="button"
+            onClick={() => router.push('/')}
+            className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-all"
+          >
+            <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" /> 
+            <span className="hidden sm:inline">返回</span>
+          </button>
+          
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5">
+              <div className="flex h-2 w-2 items-center justify-center rounded-full bg-primary animate-pulse" />
+              <span className="text-xs font-medium text-primary">
+                {type === 'generate' ? 'AI 生成图形' : 'AI 分析结果'}
+              </span>
+            </div>
+            <h1 className="text-lg font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+              {type === 'generate' ? '精确几何图形' : '几何题分析结果'}
+            </h1>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleShare}
+            className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-all"
+            title="复制链接（仅当前浏览器可打开）"
+          >
+            {urlCopied ? (
+              <><Check className="h-4 w-4 text-green-600" /> <span className="hidden sm:inline text-green-600">已复制</span></>
+            ) : (
+              <><Share2 className="h-4 w-4 transition-transform group-hover:scale-110" /> <span className="hidden sm:inline">复制本机链接</span></>
+            )}
+          </button>
+        </div>
+
+        <div className="pb-3 text-center">
+          <p className="text-xs text-amber-700/90">
+            提示：分析结果保存在当前浏览器本地，复制的链接仅在本设备有效。
+          </p>
+        </div>
       </div>
 
       {/* 修复状态通知 */}
@@ -384,30 +414,36 @@ function AnalyzeContent({ id }: { id: string }) {
         </div>
       )}
 
-      {/* 主布局：左侧图形 + 右侧信息 */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+      {/* 主布局：优化响应式栅格 */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
 
         {/* ── 左侧：GeoGebra + 动画控制 ── */}
-        <div className="lg:col-span-3 space-y-4">
-          <div className="rounded-2xl border bg-card shadow-sm p-4 space-y-4">
-            {/* 标题行 */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 font-medium text-sm">
-                <Layers className="h-4 w-4 text-primary" />
-                交互几何图形
-                {fixRetryCount > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    (已修复 {fixRetryCount} 次)
-                  </span>
-                )}
-              </div>
-              <div className="flex gap-2">
+        <div className="xl:col-span-2 space-y-4">
+          <div className="relative overflow-hidden rounded-3xl border bg-card shadow-xl shadow-primary/5">
+            {/* 顶部装饰 */}
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+            
+            <div className="p-6 space-y-4">
+              {/* 标题行 - 增强视觉 */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+                    <Layers className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold">交互几何图形</h2>
+                    {fixRetryCount > 0 && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Check className="h-3 w-3 text-green-600" />
+                        已修复 {fixRetryCount} 次
+                      </p>
+                    )}
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
-                    // 下载 SVG - 使用 GeoGebra 提供的 ggbApplet 变量直接访问
                     try {
-                      // window.ggbApplet 已在全局类型中声明（types/index.ts）
                       const ggb = window.ggbApplet;
                       if (!ggb || typeof ggb.exportSVG !== 'function') {
                         throw new Error('GeoGebra API not ready');
@@ -426,179 +462,242 @@ function AnalyzeContent({ id }: { id: string }) {
                       alert('导出失败，请使用 GeoGebra 内置导出功能');
                     }
                   }}
-                  className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted transition-colors"
+                  className="group flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-xs font-medium text-primary hover:bg-primary/10 transition-all hover:shadow-md hover:shadow-primary/20"
                   title="导出 SVG"
                 >
-                  <Download className="h-3.5 w-3.5" /> SVG
+                  <Download className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" /> 
+                  <span className="hidden sm:inline">导出 SVG</span>
+                  <span className="sm:hidden">SVG</span>
                 </button>
               </div>
-            </div>
 
-            {/* GeoGebra 视图 */}
-            <GeoGebraViewer
-              commands={result.geogebra}
-              height={440}
-              showToolbar={false}
-              animationMode={animationMode}
-              commandIndex={cmdIndex}
-              onReady={() => setAppletReady(true)}
-              onCommandError={handleCommandError}
-            />
+              {/* GeoGebra 视图 - 大屏幕更大 */}
+              <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-background via-muted/20 to-background">
+                <div className="absolute inset-0 bg-grid-primary/[0.02] bg-[size:20px]" />
+                <GeoGebraViewer
+                  commands={result.geogebra}
+                  height={600}
+                  showToolbar={false}
+                  animationMode={animationMode}
+                  commandIndex={cmdIndex}
+                  onReady={() => setAppletReady(true)}
+                  onCommandError={handleCommandError}
+                />
+              </div>
 
-            {/* 动画控制 */}
-            <div className="border-t pt-3">
-              <p className="mb-2 text-xs text-muted-foreground">
-                动画演示（逐步展示作图过程）
-              </p>
-              <AnimationControls
-                state={animState}
-                total={commandLines.length}
-                current={cmdIndex === -1 ? commandLines.length - 1 : cmdIndex}
-                speed={animSpeed}
-                onPlay={handlePlay}
-                onPause={handlePause}
-                onReset={handleReset}
-                onStep={handleStep}
-                onSpeedChange={handleSpeedChange}
-              />
+              {/* 动画控制 - 增强 UI */}
+              <div className="rounded-2xl border bg-gradient-to-r from-primary/5 via-card to-primary/5 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10">
+                    <span className="text-xs">🎬</span>
+                  </div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    动画演示 <span className="hidden sm:inline">（逐步展示作图过程）</span>
+                  </p>
+                </div>
+                <AnimationControls
+                  state={animState}
+                  total={commandLines.length}
+                  current={cmdIndex === -1 ? commandLines.length - 1 : cmdIndex}
+                  speed={animSpeed}
+                  onPlay={handlePlay}
+                  onPause={handlePause}
+                  onReset={handleReset}
+                  onStep={handleStep}
+                  onSpeedChange={handleSpeedChange}
+                />
+              </div>
             </div>
           </div>
 
-          {/* GeoGebra 命令面板 */}
-          <div className="rounded-2xl border bg-card shadow-sm">
+          {/* GeoGebra 命令面板 - 优化视觉 */}
+          <div className="relative overflow-hidden rounded-3xl border bg-card shadow-xl shadow-primary/5">
             <button
               type="button"
               onClick={() => setCmdExpanded((v) => !v)}
-              className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-muted/50 transition-colors"
+              className="group flex w-full items-center justify-between px-5 py-4 text-sm font-semibold hover:bg-muted/50 transition-all"
             >
-              <span className="flex items-center gap-2">
-                <BookOpen className="h-4 w-4 text-primary" />
-                GeoGebra 命令（{commandLines.length} 行）
+              <span className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 transition-transform group-hover:scale-110">
+                  <BookOpen className="h-5 w-5 text-primary" />
+                </div>
+                <div className="text-left">
+                  <p>GeoGebra 命令</p>
+                  <p className="text-xs text-muted-foreground font-normal">{commandLines.length} 行</p>
+                </div>
               </span>
-              {cmdExpanded ? (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              )}
+              <div className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-xl bg-muted/50 transition-all group-hover:scale-110",
+                cmdExpanded ? "rotate-180 bg-primary/20" : ""
+              )}>
+                <ChevronDown className="h-4 w-4 text-primary" />
+              </div>
             </button>
             {cmdExpanded && (
-              <div className="border-t px-4 pt-2 pb-4">
-                <div className="relative rounded-lg bg-muted/60 p-4">
-                  <pre className="code-block whitespace-pre-wrap break-all text-xs leading-relaxed">
-                    {result.geogebra}
-                  </pre>
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className="absolute top-2 right-2 flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted transition-colors"
-                  >
-                    {copied ? (
-                      <><Check className="h-3.5 w-3.5 text-green-600" /> 已复制</>
-                    ) : (
-                      <><Copy className="h-3.5 w-3.5" /> 复制</>
-                    )}
-                  </button>
+              <div className="border-t">
+                <div className="p-5 space-y-3">
+                  <div className="relative overflow-hidden rounded-2xl border bg-muted/30">
+                    <div className="absolute top-3 right-3 z-10">
+                      <button
+                        type="button"
+                        onClick={handleCopy}
+                        className="group flex items-center gap-2 rounded-lg border bg-background/90 px-3 py-1.5 text-xs font-medium backdrop-blur-sm hover:bg-muted transition-all hover:shadow-md"
+                      >
+                        {copied ? (
+                          <><Check className="h-3.5 w-3.5 text-green-600" /> 已复制</>
+                        ) : (
+                          <><Copy className="h-3.5 w-3.5" /> 复制</>
+                        )}
+                      </button>
+                    </div>
+                    <pre className="code-block max-h-96 overflow-auto whitespace-pre-wrap break-all p-4 text-xs leading-relaxed text-muted-foreground bg-gradient-to-br from-muted/50 to-muted/30">
+                      {result.geogebra}
+                    </pre>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl border border-blue-500/20 bg-blue-500/5 p-3">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-500/20 text-xs">💡</div>
+                    <p className="text-xs text-muted-foreground">
+                      可将命令粘贴到{' '}
+                      <a
+                        href="https://www.geogebra.org/classic"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-blue-600 underline hover:text-blue-500"
+                      >
+                        GeoGebra Classic
+                      </a>{' '}
+                      中使用
+                    </p>
+                  </div>
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  可将命令粘贴到{' '}
-                  <a
-                    href="https://www.geogebra.org/classic"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:text-foreground"
-                  >
-                    GeoGebra Classic
-                  </a>{' '}
-                  中使用
-                </p>
               </div>
             )}
           </div>
         </div>
 
-        {/* ── 右侧：已知条件、目标、解题步骤 ── */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* 已知条件 */}
-          {result.conditions.length > 0 && (
-            <div className="rounded-2xl border bg-card shadow-sm p-4">
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                <ListChecks className="h-4 w-4 text-blue-500" />
-                已知条件
-              </h2>
-              <ul className="space-y-1.5">
-                {result.conditions.map((cond, i) => (
-                  <li
-                    key={i}
-                    className="flex items-start gap-2 text-sm"
-                  >
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-700">
-                      {i + 1}
-                    </span>
-                    {cond}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+        {/* ── 右侧：合并的信息面板 ── */}
+        <div className="space-y-4">
+          {/* 合并已知条件和求解目标 */}
+          <div className="relative overflow-hidden rounded-3xl border bg-card shadow-xl shadow-primary/5">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-500/20 to-transparent" />
+            <div className="p-6 space-y-5">
+              {/* 已知条件 */}
+              {result.conditions.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-500/10">
+                      <ListChecks className="h-4 w-4 text-blue-500" />
+                    </div>
+                    <h2 className="text-sm font-semibold">已知条件</h2>
+                  </div>
+                  <div className="space-y-2">
+                    {result.conditions.map((cond, i) => (
+                      <div
+                        key={i}
+                        className="group flex items-start gap-3 rounded-xl border border-blue-500/10 bg-blue-500/5 p-3 transition-all hover:border-blue-500/30 hover:shadow-md hover:shadow-blue-500/10"
+                      >
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-blue-500/20 text-xs font-bold text-blue-700">
+                          {i + 1}
+                        </span>
+                        <span className="text-sm leading-relaxed">{cond}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-          {/* 求解目标 */}
-          {result.goal && (
-            <div className="rounded-2xl border bg-amber-50 shadow-sm p-4">
-              <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-800">
-                <Target className="h-4 w-4" />
-                求解目标
-              </h2>
-              <p className="text-sm text-amber-900">{result.goal}</p>
+              {/* 求解目标 */}
+              {result.goal && (
+                <div className="relative overflow-hidden rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/5 via-amber-500/5 to-transparent p-4">
+                  <div className="absolute -right-4 -top-4 h-20 w-20 rounded-full bg-gradient-to-br from-amber-500/10 to-transparent blur-xl" />
+                  <div className="relative flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/20">
+                      <Target className="h-5 w-5 text-amber-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-amber-800 mb-1">求解目标</h3>
+                      <p className="text-sm text-amber-900 leading-relaxed">{result.goal}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
           {/* 解题步骤（仅分析模式有） */}
           {result.solution && result.solution.length > 0 && (
-            <div className="rounded-2xl border bg-card shadow-sm">
+            <div className="relative overflow-hidden rounded-3xl border bg-card shadow-xl shadow-primary/5">
               <button
                 type="button"
                 onClick={() => setSolutionExpanded((v) => !v)}
-                className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold hover:bg-muted/50 transition-colors"
+                className="group flex w-full items-center justify-between px-5 py-4 text-sm font-semibold hover:bg-muted/50 transition-all"
               >
-                <span className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4 text-green-600" />
-                  解题思路
+                <span className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-500/10 transition-transform group-hover:scale-110">
+                    <BookOpen className="h-5 w-5 text-green-600" />
+                  </div>
+                  <div className="text-left">
+                    <p>解题思路</p>
+                    <p className="text-xs text-muted-foreground font-normal">{result.solution.length} 个步骤</p>
+                  </div>
                 </span>
-                {solutionExpanded ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                )}
+                <div className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-xl bg-muted/50 transition-all group-hover:scale-110",
+                  solutionExpanded ? "rotate-180 bg-green-500/20" : ""
+                )}>
+                  <ChevronDown className="h-4 w-4 text-green-600" />
+                </div>
               </button>
               {solutionExpanded && (
-                <div className="border-t px-4 py-4">
-                  <ol className="space-y-2">
-                    {result.solution.map((step, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm">
-                        <span
-                          className={cn(
-                            'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white',
-                            'bg-green-500'
-                          )}
-                        >
-                          {i + 1}
-                        </span>
-                        <span className="leading-relaxed">{step}</span>
-                      </li>
-                    ))}
-                  </ol>
+                <div className="border-t px-5 py-4 space-y-2">
+                  {result.solution.map((step, i) => (
+                    <div
+                      key={i}
+                      className="group flex items-start gap-3 rounded-xl border border-green-500/10 bg-green-500/5 p-3 transition-all hover:border-green-500/30 hover:shadow-md hover:shadow-green-500/10"
+                    >
+                      <span
+                        className={cn(
+                          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white transition-transform group-hover:scale-110',
+                          'bg-gradient-to-br from-green-500 to-green-600 shadow-sm'
+                        )}
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="text-sm leading-relaxed">{step}</span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
           )}
 
-          {/* 操作提示 */}
-          <div className="rounded-xl border bg-muted/30 px-4 py-3 text-xs text-muted-foreground space-y-1">
-            <p className="font-medium text-foreground">操作提示</p>
-            <p>• 鼠标拖动顶点可改变图形形状</p>
-            <p>• Shift + 滚轮缩放视图</p>
-            <p>• 点击右上角重置图标恢复初始状态</p>
-            <p>• 使用下方动画控制逐步演示作图过程</p>
+          {/* 操作提示 - 优化视觉 */}
+          <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-muted/50 to-muted/30 p-4">
+            <div className="absolute -right-3 -top-3 h-16 w-16 rounded-full bg-gradient-to-br from-primary/10 to-transparent blur-xl" />
+            <div className="relative space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10 text-xs">💡</div>
+                <p className="text-xs font-semibold text-foreground">操作提示</p>
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground flex items-center gap-2">
+                  <span className="flex h-1.5 w-1.5 rounded-full bg-primary" />
+                  鼠标拖动顶点可改变图形形状
+                </p>
+                <p className="text-xs text-muted-foreground flex items-center gap-2">
+                  <span className="flex h-1.5 w-1.5 rounded-full bg-primary" />
+                  Shift + 滚轮缩放视图
+                </p>
+                <p className="text-xs text-muted-foreground flex items-center gap-2">
+                  <span className="flex h-1.5 w-1.5 rounded-full bg-primary" />
+                  点击右上角重置图标恢复初始状态
+                </p>
+                <p className="text-xs text-muted-foreground flex items-center gap-2">
+                  <span className="flex h-1.5 w-1.5 rounded-full bg-primary" />
+                  使用下方动画控制逐步演示作图过程
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

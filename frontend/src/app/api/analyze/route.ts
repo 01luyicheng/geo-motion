@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
 import {
   streamOpenRouter,
-  parseVlmJson,
   ANALYZE_SYSTEM_PROMPT,
   type OpenRouterMessage,
 } from '@/lib/openrouter';
@@ -16,7 +15,11 @@ export async function POST(req: NextRequest) {
   const requestStart = Date.now();
   
   try {
-    const body = await req.json() as { image?: string };
+    const body = await req.json() as { 
+      image?: string;
+      retryCount?: number;
+      previousError?: string;
+    };
 
     if (!body.image) {
       return new Response(
@@ -41,6 +44,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 构建用户提示，包含重试信息
+    let userPrompt = '请识别这道几何题，重建GeoGebra图形并给出简洁解题思路。严格按照系统提示的JSON格式输出。';
+    
+    if (body.retryCount && body.retryCount > 0 && body.previousError) {
+      userPrompt = `之前的生成结果有语法错误，请修正后重新生成。\n\n错误信息：${body.previousError}\n\n请重新识别这道几何题，生成正确的GeoGebra命令。注意检查：\n1. 所有括号必须成对出现\n2. 命令参数不能为空\n3. 不要使用中文字符\n4. 确保命令格式正确\n\n严格按照系统提示的JSON格式输出。`;
+    }
+
     const messages: OpenRouterMessage[] = [
       { role: 'system', content: ANALYZE_SYSTEM_PROMPT },
       {
@@ -52,7 +62,7 @@ export async function POST(req: NextRequest) {
           },
           {
             type: 'text',
-            text: '请识别这道几何题，只生成GeoGebra命令重建图形。严格按照系统提示的JSON格式输出，solution保持空数组。',
+            text: userPrompt,
           },
         ],
       },

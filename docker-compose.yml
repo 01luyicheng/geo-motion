@@ -1,0 +1,30 @@
+# GeoMotion Docker Compose 配置
+# 一键启动：docker-compose up -d
+
+version: '3.8'
+
+services:
+  geo-motion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: geo-motion
+    ports:
+      - "3000:3000"
+    environment:
+      # 必填：OpenRouter API Key
+      # 在 https://openrouter.ai/keys 获取
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      
+      # 可选：指定 AI 模型
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-qwen/qwen3-vl-235b-a22b-instruct}
+      
+      # 可选：应用域名
+      - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL:-http://localhost:3000}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

@@ -16,7 +16,12 @@ export async function POST(req: NextRequest) {
   const requestStart = Date.now();
   
   try {
-    const body = await req.json() as { text?: string; sketch?: string };
+    const body = await req.json() as { 
+      text?: string; 
+      sketch?: string;
+      retryCount?: number;
+      previousError?: string;
+    };
 
     if (!body.text || body.text.trim().length === 0) {
       return new Response(
@@ -41,14 +46,29 @@ export async function POST(req: NextRequest) {
         type: 'image_url',
         image_url: { url: body.sketch },
       });
+      
+      // 构建提示文本，包含重试信息
+      let promptText = `题目文本：${body.text}\n\n以上是手绘草图，请结合题目文本和草图，生成精确的GeoGebra命令。严格按照系统提示的JSON格式输出。`;
+      
+      if (body.retryCount && body.retryCount > 0 && body.previousError) {
+        promptText = `题目文本：${body.text}\n\n之前的生成结果有语法错误，请修正后重新生成。\n\n错误信息：${body.previousError}\n\n以上是手绘草图，请结合题目文本和草图，生成正确的GeoGebra命令。注意检查：\n1. 所有括号必须成对出现\n2. 命令参数不能为空\n3. 不要使用中文字符\n4. 确保命令格式正确\n\n严格按照系统提示的JSON格式输出。`;
+      }
+      
       contentParts.push({
         type: 'text',
-        text: `题目文本：${body.text}\n\n以上是手绘草图，请结合题目文本和草图，生成精确的GeoGebra命令。严格按照系统提示的JSON格式输出。`,
+        text: promptText,
       });
     } else {
+      // 构建提示文本，包含重试信息
+      let promptText = `题目文本：${body.text}\n\n请根据题目文本生成精确的GeoGebra命令。严格按照系统提示的JSON格式输出。`;
+      
+      if (body.retryCount && body.retryCount > 0 && body.previousError) {
+        promptText = `题目文本：${body.text}\n\n之前的生成结果有语法错误，请修正后重新生成。\n\n错误信息：${body.previousError}\n\n请重新生成正确的GeoGebra命令。注意检查：\n1. 所有括号必须成对出现\n2. 命令参数不能为空\n3. 不要使用中文字符\n4. 确保命令格式正确\n\n严格按照系统提示的JSON格式输出。`;
+      }
+      
       contentParts.push({
         type: 'text',
-        text: `题目文本：${body.text}\n\n请根据题目文本生成精确的GeoGebra命令。严格按照系统提示的JSON格式输出。`,
+        text: promptText,
       });
     }
 

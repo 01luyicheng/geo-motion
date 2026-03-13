@@ -82,23 +82,61 @@
   line-height: 1.6;
 }
 
-/* 暗色模式切换过渡 */
+/* 暗色模式切换过渡 - 使用更短的过渡时间 */
 html {
   color-scheme: light dark;
 }
 html,
 body {
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.15s ease-out, color 0.15s ease-out;
 }
 
-/* 进度条不确定动画 */
-@keyframes progress-indeterminate {
-  0% { transform: translateX(-100%) scaleX(0.5); }
-  50% { transform: translateX(0%) scaleX(0.5); }
-  100% { transform: translateX(100%) scaleX(0.5); }
+/* 网格背景图案 */
+.bg-grid-white\/\[0\.02\] {
+  background-image: linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
 }
-.animate-progress-indeterminate {
-  animation: progress-indeterminate 1.4s ease-in-out infinite;
-  transform-origin: left center;
-  width: 60% !important;
+
+.bg-grid-primary\/\[0\.02\] {
+  background-image: linear-gradient(rgba(var(--primary), 0.02) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(var(--primary), 0.02) 1px, transparent 1px);
+}
+
+/* 增强滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.7);
+}
+
+/* 平滑滚动 - 仅在支持 reduced-motion 的设备上启用 */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* 选中文字样式 */
+::selection {
+  background-color: hsl(var(--primary) / 0.2);
+  color: hsl(var(--foreground));
+}
+
+/* 焦点可见性增强 */
+*:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }

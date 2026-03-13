@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "regions": ["hkg1"],
+  "env": {
+    "OPENROUTER_MODEL": "qwen/qwen3-vl-235b-a22b-instruct"
+  }
+}

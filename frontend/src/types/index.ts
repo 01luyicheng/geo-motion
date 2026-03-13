@@ -61,7 +61,7 @@ declare global {
     GGBApplet: new (params: GeoGebraParams & { [key: string]: unknown }, html5only: boolean) => {
       inject: (element: HTMLElement | string) => void;
     };
-    ggbApplet: GgbAppletAPI;
+    ggbApplet?: GgbAppletAPI;
   }
 }
 

@@ -5,18 +5,24 @@ export interface StreamResult {
   error?: string;
 }
 
+export interface StreamRequestOptions {
+  signal?: AbortSignal;
+}
+
 /**
  * 发起 SSE 流式 POST 请求，通过 onChunk 回调逐块返回内容
  */
 export async function streamRequest(
   url: string,
   body: unknown,
-  onChunk: (chunk: string) => void
+  onChunk: (chunk: string) => void,
+  options: StreamRequestOptions = {}
 ): Promise<StreamResult> {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: options.signal,
   });
 
   if (!res.ok) {
