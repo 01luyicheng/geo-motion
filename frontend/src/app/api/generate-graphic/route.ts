@@ -78,7 +78,10 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : '服务器内部错误';
-    console.error('[generate-graphic] 错误:', message);
+    console.error(
+      `[generate-graphic][${new Date().toISOString()}] 错误:`,
+      message
+    );
     return new Response(
       JSON.stringify({ success: false, error: { code: 'GENERATION_FAILED', message } }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }

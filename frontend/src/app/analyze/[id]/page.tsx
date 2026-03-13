@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback, Suspense } from 'react';
+import { useEffect, useState, useCallback, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Copy,
@@ -14,12 +14,15 @@ import {
   Target,
   BookOpen,
   Share2,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
-import { GeoGebraViewer } from '@/components/GeoGebraViewer';
+import { GeoGebraViewer, type CommandExecutionResult } from '@/components/GeoGebraViewer';
 import { AnimationControls } from '@/components/AnimationControls';
-import { getStoredResult } from '@/lib/utils';
+import { getStoredResult, setStoredResult } from '@/lib/utils';
 import { cn } from '@/lib/utils';
-import type { AnalysisResult, AnimationState } from '@/types';
+import { useAnimation } from '@/hooks/useAnimation';
+import type { AnalysisResult } from '@/types';
 
 // ─────────────────────────────────────────────────────────────────
 
@@ -43,15 +46,6 @@ function AnalyzeContent({ id }: { id: string }) {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [notFound, setNotFound] = useState(false);
 
-  // GeoGebra 动画状态
-  const [appletReady, setAppletReady] = useState(false);
-  const [animationMode, setAnimationMode] = useState(false);
-  const [animState, setAnimState] = useState<AnimationState>('idle');
-  const [cmdIndex, setCmdIndex] = useState(-1);  // -1 表示全部执行
-  const [animSpeed, setAnimSpeed] = useState(1000);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const replayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // 命令面板展开控制
   const [cmdExpanded, setCmdExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -59,6 +53,16 @@ function AnalyzeContent({ id }: { id: string }) {
 
   // 解题步骤展开
   const [solutionExpanded, setSolutionExpanded] = useState(true);
+
+  // 修复相关状态
+  const [isFixing, setIsFixing] = useState(false);
+  const [fixError, setFixError] = useState<string | null>(null);
+  const [fixRetryCount, setFixRetryCount] = useState(0);
+  const [lastCommandErrors, setLastCommandErrors] = useState<CommandExecutionResult | null>(null);
+  const [showFixNotification, setShowFixNotification] = useState(false);
+  const [fixSuccess, setFixSuccess] = useState(false);
+  // 使用 ref 进行同步检查，避免竞态条件
+  const isFixingRef = useRef(false);
 
   // 加载结果
   useEffect(() => {
@@ -74,117 +78,20 @@ function AnalyzeContent({ id }: { id: string }) {
     ? result.geogebra.split('\n').filter((l) => l.trim())
     : [];
 
-  // 停止动画
-  const stopAnimation = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    // 清理重播延迟定时器
-    if (replayTimeoutRef.current) {
-      clearTimeout(replayTimeoutRef.current);
-      replayTimeoutRef.current = null;
-    }
-  }, []);
-
-  // 播放动画
-  const handlePlay = useCallback(() => {
-    if (!appletReady) return;
-
-    // 若已结束，先重置
-    let startIdx = cmdIndex;
-    if (animState === 'finished' || cmdIndex >= commandLines.length - 1) {
-      setCmdIndex(-1);
-      startIdx = -1;
-      setAnimationMode(false);
-      // 清理之前的重播延迟定时器，避免竞态条件
-      if (replayTimeoutRef.current) {
-        clearTimeout(replayTimeoutRef.current);
-      }
-      // 短暂延迟后切回动画模式开始播放
-      replayTimeoutRef.current = setTimeout(() => {
-        replayTimeoutRef.current = null;
-        setCmdIndex(0);
-        setAnimationMode(true);
-        setAnimState('playing');
-      }, 200);
-      return;
-    }
-
-    setAnimationMode(true);
-    setAnimState('playing');
-
-    const nextIndex = startIdx === -1 ? 0 : startIdx + 1;
-    setCmdIndex(nextIndex);
-
-    let cur = nextIndex;
-    intervalRef.current = setInterval(() => {
-      cur += 1;
-      if (cur >= commandLines.length) {
-        stopAnimation();
-        setCmdIndex(commandLines.length - 1);
-        setAnimState('finished');
-        return;
-      }
-      setCmdIndex(cur);
-    }, animSpeed);
-  }, [appletReady, animState, cmdIndex, commandLines.length, animSpeed, stopAnimation]);
-
-  // 暂停
-  const handlePause = useCallback(() => {
-    stopAnimation();
-    setAnimState('paused');
-  }, [stopAnimation]);
-
-  // 重置
-  const handleReset = useCallback(() => {
-    stopAnimation();
-    setAnimationMode(false);
-    setCmdIndex(-1);
-    setAnimState('idle');
-  }, [stopAnimation]);
-
-  // 单步
-  const handleStep = useCallback(
-    (delta: 1 | -1) => {
-      stopAnimation();
-      setAnimationMode(true);
-      setAnimState('paused');
-      setCmdIndex((prev) => {
-        const next = prev + delta;
-        if (next < 0) return 0;
-        if (next >= commandLines.length) return commandLines.length - 1;
-        return next;
-      });
-    },
-    [commandLines.length, stopAnimation]
-  );
-
-  // 改变速度（若正在播放则重启定时器）
-  const handleSpeedChange = useCallback(
-    (ms: number) => {
-      setAnimSpeed(ms);
-      if (animState === 'playing') {
-        stopAnimation();
-        // 用新速度重新开始
-        let cur = cmdIndex;
-        intervalRef.current = setInterval(() => {
-          cur += 1;
-          if (cur >= commandLines.length) {
-            stopAnimation();
-            setCmdIndex(commandLines.length - 1);
-            setAnimState('finished');
-            return;
-          }
-          setCmdIndex(cur);
-        }, ms);
-      }
-    },
-    [animState, cmdIndex, commandLines.length, stopAnimation]
-  );
-
-  // 清理
-  useEffect(() => () => stopAnimation(), [stopAnimation]);
+  // 动画控制（已提取到 useAnimation hook）
+  const {
+    appletReady,
+    setAppletReady,
+    animationMode,
+    animState,
+    cmdIndex,
+    animSpeed,
+    handlePlay,
+    handlePause,
+    handleReset,
+    handleStep,
+    handleSpeedChange,
+  } = useAnimation({ commandCount: commandLines.length });
 
   // 复制命令
   const handleCopy = useCallback(async () => {
@@ -199,6 +106,140 @@ function AnalyzeContent({ id }: { id: string }) {
     await navigator.clipboard.writeText(window.location.href);
     setUrlCopied(true);
     setTimeout(() => setUrlCopied(false), 2000);
+  }, []);
+
+  // 使用 ref 跟踪重试次数，避免闭包中的旧值问题
+  const fixRetryCountRef = useRef(0);
+
+  // 处理命令执行错误
+  const handleCommandError = useCallback(async (errorResult: CommandExecutionResult) => {
+    console.log('[AnalyzePage] 命令执行错误:', errorResult);
+    setLastCommandErrors(errorResult);
+
+    // 使用 ref 进行同步检查，避免竞态条件
+    // 立即检查并设置 isFixingRef，防止快速连续调用绕过检查
+    if (isFixingRef.current || fixRetryCountRef.current >= 3) {
+      return;
+    }
+
+    // 立即设置 isFixingRef，防止竞态条件
+    isFixingRef.current = true;
+
+    // 自动触发修复
+    await fixCommands(errorResult);
+  }, []);
+
+  // 调用 API 修复命令
+  const fixCommands = async (errorResult: CommandExecutionResult) => {
+    if (!result) return;
+
+    // 注意：isFixingRef.current 已在 handleCommandError 中设置
+    setIsFixing(true);
+    setFixError(null);
+    setShowFixNotification(true);
+    setFixSuccess(false);
+
+    try {
+      const response = await fetch('/api/fix-commands', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          originalCommands: result.geogebra,
+          errors: errorResult.errors,
+          conditions: result.conditions,
+          goal: result.goal,
+          retryCount: fixRetryCount,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // 区分不同类型的错误
+        if (response.status === 429) {
+          throw new Error('请求过于频繁，请稍后再试');
+        }
+        if (response.status === 503) {
+          throw new Error('服务暂时不可用，请稍后重试');
+        }
+        if (response.status >= 500) {
+          throw new Error('服务器错误，请联系管理员');
+        }
+        throw new Error(data.error?.message || '修复请求失败');
+      }
+
+      if (!data.success) {
+        // 区分修复失败的不同原因
+        if (data.error?.code === 'UNFIXABLE') {
+          throw new Error('命令无法自动修复，请手动修改或重新生成');
+        }
+        if (data.error?.code === 'INVALID_INPUT') {
+          throw new Error('输入数据无效，请检查命令格式');
+        }
+        throw new Error(data.message || '修复失败');
+      }
+
+      // 更新结果
+      const updatedResult: AnalysisResult = {
+        ...result,
+        geogebra: data.geogebra,
+      };
+
+      // 保存到本地存储
+      setStoredResult(`analysis:${id}`, updatedResult);
+      setResult(updatedResult);
+      
+      // 同步更新 ref 和 state
+      fixRetryCountRef.current += 1;
+      setFixRetryCount(fixRetryCountRef.current);
+      setFixSuccess(true);
+
+      // 修复成功后重置动画状态
+      handleReset();
+
+      // 3 秒后隐藏成功提示
+      setTimeout(() => {
+        setShowFixNotification(false);
+      }, 3000);
+
+      console.log('[AnalyzePage] 命令修复成功:', data.message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '修复失败';
+      setFixError(message);
+      console.error('[AnalyzePage] 修复命令失败:', err);
+      
+      // 如果是网络错误，提供额外提示
+      if (message.includes('网络') || message.includes('fetch')) {
+        setFixError('网络连接失败，请检查网络后重试');
+      }
+    } finally {
+      isFixingRef.current = false;
+      setIsFixing(false);
+    }
+  };
+
+  // 手动触发修复
+  const handleManualFix = useCallback(() => {
+    if (fixRetryCountRef.current >= 3) {
+      setFixError('已达到最大重试次数（3 次），请检查原始命令或联系管理员');
+      return;
+    }
+    if (lastCommandErrors && !isFixingRef.current) {
+      isFixingRef.current = true;
+      fixCommands(lastCommandErrors);
+    }
+  }, [lastCommandErrors]);
+
+  // 重置修复状态
+  const handleResetFix = useCallback(() => {
+    fixRetryCountRef.current = 0;
+    setFixRetryCount(0);
+    setFixError(null);
+    setLastCommandErrors(null);
+    setShowFixNotification(false);
+    setFixSuccess(false);
   }, []);
 
   if (notFound) {
@@ -254,6 +295,95 @@ function AnalyzeContent({ id }: { id: string }) {
         </button>
       </div>
 
+      {/* 修复状态通知 */}
+      {showFixNotification && (
+        <div className={cn(
+          "rounded-lg px-4 py-3 flex items-center gap-3",
+          fixSuccess ? "bg-green-50 border border-green-200" : "bg-blue-50 border border-blue-200"
+        )}>
+          {isFixing ? (
+            <>
+              <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
+              <span className="text-sm text-blue-800">正在修复 GeoGebra 命令（第 {fixRetryCount + 1} 次尝试）...</span>
+            </>
+          ) : fixSuccess ? (
+            <>
+              <Check className="h-4 w-4 text-green-600" />
+              <span className="text-sm text-green-800">
+                命令修复成功！已重新渲染图形（第 {fixRetryCount} 次修复）
+              </span>
+            </>
+          ) : (
+            <>
+              <AlertCircle className="h-4 w-4 text-blue-600" />
+              <span className="text-sm text-blue-800">
+                检测到 {lastCommandErrors?.failedCount} 条命令执行失败，正在尝试自动修复...
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 达到最大重试次数的 fallback 提示 */}
+      {fixRetryCount >= 3 && lastCommandErrors && !fixError && (
+        <div className="rounded-lg px-4 py-3 bg-amber-50 border border-amber-200 flex items-center gap-3">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          <div className="flex-1">
+            <p className="text-sm text-amber-800 font-medium">无法自动修复命令</p>
+            <p className="text-xs text-amber-700 mt-1">
+              已尝试 3 次修复但仍失败。您可以：
+            </p>
+            <ul className="text-xs text-amber-700 mt-1 list-disc list-inside space-y-0.5">
+              <li>手动检查并修改 GeoGebra 命令</li>
+              <li>返回首页重新生成图形</li>
+              <li>联系技术支持获取帮助</li>
+            </ul>
+          </div>
+          <button
+            type="button"
+            onClick={handleResetFix}
+            className="text-xs px-3 py-1.5 border border-amber-300 rounded hover:bg-amber-100 transition-colors"
+          >
+            关闭提示
+          </button>
+        </div>
+      )}
+
+      {/* 修复错误提示 */}
+      {fixError && (
+        <div className="rounded-lg px-4 py-3 bg-destructive/10 border border-destructive/20 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="h-4 w-4 text-destructive" />
+            <div className="flex flex-col gap-1">
+              <span className="text-sm text-destructive">修复失败：{fixError}</span>
+              {fixRetryCount >= 3 && (
+                <span className="text-xs text-muted-foreground">
+                  已达到最大重试次数（3 次）。建议：1) 检查原始命令是否正确；2) 联系管理员；3) 重新生成图形
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {fixRetryCount < 3 && (
+              <button
+                type="button"
+                onClick={handleManualFix}
+                className="text-xs px-2 py-1 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
+              >
+                重试修复
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleResetFix}
+              className="text-xs px-2 py-1 border rounded hover:bg-muted transition-colors"
+            >
+              重置
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 主布局：左侧图形 + 右侧信息 */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
 
@@ -265,6 +395,11 @@ function AnalyzeContent({ id }: { id: string }) {
               <div className="flex items-center gap-2 font-medium text-sm">
                 <Layers className="h-4 w-4 text-primary" />
                 交互几何图形
+                {fixRetryCount > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    (已修复 {fixRetryCount} 次)
+                  </span>
+                )}
               </div>
               <div className="flex gap-2">
                 <button
@@ -272,7 +407,8 @@ function AnalyzeContent({ id }: { id: string }) {
                   onClick={() => {
                     // 下载 SVG - 使用 GeoGebra 提供的 ggbApplet 变量直接访问
                     try {
-                      const ggb = (window as unknown as { ggbApplet?: typeof window.ggbApplet }).ggbApplet;
+                      // window.ggbApplet 已在全局类型中声明（types/index.ts）
+                      const ggb = window.ggbApplet;
                       if (!ggb || typeof ggb.exportSVG !== 'function') {
                         throw new Error('GeoGebra API not ready');
                       }
@@ -306,6 +442,7 @@ function AnalyzeContent({ id }: { id: string }) {
               animationMode={animationMode}
               commandIndex={cmdIndex}
               onReady={() => setAppletReady(true)}
+              onCommandError={handleCommandError}
             />
 
             {/* 动画控制 */}

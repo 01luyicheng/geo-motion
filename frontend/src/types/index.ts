@@ -58,14 +58,34 @@ declare global {
     GGBApplet: new (params: GeoGebraParams & { [key: string]: unknown }, html5only: boolean) => {
       inject: (element: HTMLElement | string) => void;
     };
-    ggbApplet: {
-      evalCommand: (cmd: string) => void;
-      reset: () => void;
-      newConstruction: () => void;
-      exportSVG: () => string;
-      getPNGBase64: (dpi?: number) => string;
-    };
+    ggbApplet: GgbAppletAPI;
   }
+}
+
+/** GeoGebra Applet 实例 API（Issue #11：补全常用方法） */
+export interface GgbAppletAPI {
+  // 命令执行
+  evalCommand: (cmd: string) => boolean;
+  reset: () => void;
+  newConstruction: () => void;
+  // 导出
+  exportSVG: () => string;
+  getPNGBase64: (dpi?: number) => string;
+  // 对象管理
+  getAllObjectNames: (type?: string) => string[];
+  getObjectType: (objName: string) => string;
+  deleteObject: (objName: string) => void;
+  // 坐标与值
+  getValue: (objName: string) => number;
+  setValue: (objName: string, value: number) => void;
+  getXcoord: (objName: string) => number;
+  getYcoord: (objName: string) => number;
+  setCoords: (objName: string, x: number, y: number) => void;
+  // 显示与样式
+  setVisible: (objName: string, visible: boolean) => void;
+  isVisible: (objName: string) => boolean;
+  setColor: (objName: string, red: number, green: number, blue: number) => void;
+  setLabelVisible: (objName: string, visible: boolean) => void;
 }
 
 // 动画状态

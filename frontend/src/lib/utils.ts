@@ -39,9 +39,14 @@ export function getStoredResult<T>(key: string): T | null {
   }
 }
 
-/** 存储结果到 localStorage */
+/** 存储结果到 localStorage（含容量溢出保护，Issue #18） */
 export function setStoredResult<T>(key: string, value: T): void {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    // QuotaExceededError：存储已满，静默失败并记录警告
+    console.warn('[utils] localStorage 写入失败（存储空间不足）:', key, err);
+  }
 }
 
 /** 截断长字符串 */

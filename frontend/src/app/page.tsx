@@ -13,76 +13,9 @@ import {
 import { ImageUploader } from '@/components/ImageUploader';
 import { cn, generateId, setStoredResult } from '@/lib/utils';
 import { parseVlmJson } from '@/lib/openrouter';
-import type { AnalysisResult, ApiResponse, UploadMode } from '@/types';
-
-// ── SSE 流式请求处理 ───────────────────────────────────────────
-
-interface StreamResult {
-  content: string;
-  error?: string;
-}
-
-async function streamRequest(
-  url: string,
-  body: unknown,
-  onChunk: (chunk: string) => void
-): Promise<StreamResult> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({ error: { message: '请求失败' } }));
-    throw new Error((errorData as ApiResponse<never>).error?.message ?? '请求失败');
-  }
-
-  const reader = res.body?.getReader();
-  if (!reader) {
-    throw new Error('无法读取响应流');
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let fullContent = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('data: ')) continue;
-
-        const data = trimmed.slice(6);
-        if (data === '[DONE]') continue;
-
-        try {
-          const parsed = JSON.parse(data) as { content?: string; error?: string };
-          if (parsed.error) {
-            return { content: fullContent, error: parsed.error };
-          }
-          if (parsed.content) {
-            fullContent += parsed.content;
-            onChunk(parsed.content);
-          }
-        } catch {
-          // 忽略解析错误
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  return { content: fullContent };
-}
+import { streamRequest } from '@/lib/stream';
+import { useStreamContent } from '@/hooks/useStreamContent';
+import type { AnalysisResult, UploadMode } from '@/types';
 
 // ── 首页内容（需要 useSearchParams，放入 Suspense）──────────────
 
@@ -98,19 +31,19 @@ function HomeContent() {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [streamContent, setStreamContent] = useState<string>('');
+  const { streamContent, appendChunk, clearStreamContent } = useStreamContent();
 
   const handleAnalyze = useCallback(async () => {
     if (!image) return;
     setLoading(true);
     setError(null);
-    setStreamContent('');
+    clearStreamContent();
 
     try {
       const result = await streamRequest(
         '/api/analyze',
         { image },
-        (chunk) => setStreamContent((prev) => prev + chunk)
+        appendChunk
       );
 
       if (result.error) {
@@ -157,13 +90,13 @@ function HomeContent() {
     if (!text.trim()) return;
     setLoading(true);
     setError(null);
-    setStreamContent('');
+    clearStreamContent();
 
     try {
       const result = await streamRequest(
         '/api/generate-graphic',
         { text, sketch: sketch ?? undefined },
-        (chunk) => setStreamContent((prev) => prev + chunk)
+        appendChunk
       );
 
       if (result.error) {
@@ -233,7 +166,7 @@ function HomeContent() {
       <div className="flex overflow-hidden rounded-xl border bg-card shadow-sm">
         <button
           type="button"
-          onClick={() => { setMode('analyze'); setError(null); setStreamContent(''); }}
+          onClick={() => { setMode('analyze'); setError(null); clearStreamContent(); }}
           className={cn(
             'flex flex-1 items-center justify-center gap-2 px-6 py-4 text-sm font-medium transition-colors',
             mode === 'analyze'
@@ -246,7 +179,7 @@ function HomeContent() {
         </button>
         <button
           type="button"
-          onClick={() => { setMode('generate'); setError(null); setStreamContent(''); }}
+          onClick={() => { setMode('generate'); setError(null); clearStreamContent(); }}
           className={cn(
             'flex flex-1 items-center justify-center gap-2 px-6 py-4 text-sm font-medium transition-colors',
             mode === 'generate'
@@ -354,6 +287,16 @@ function HomeContent() {
                 </span>
               )}
             </div>
+            {/* AI 输出预览 */}
+            {streamContent.length > 0 && (
+              <div className="mt-2 rounded border bg-background/80 p-2">
+                <p className="mb-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">AI 输出预览</p>
+                <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-relaxed text-muted-foreground font-mono">
+                  {streamContent.slice(-500)}
+                  <span className="animate-pulse">▊</span>
+                </pre>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">
               AI 响应可能需要 10–30 秒，请耐心等候…
             </p>

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export const metadata: Metadata = {
   title: 'GeoMotion — 几何题可视化教学工具',
@@ -53,7 +54,9 @@ export default function RootLayout({
           </div>
         </header>
         <main className="container mx-auto px-4 py-8">
-          {children}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
         </main>
         <footer className="border-t bg-white/50 dark:bg-slate-900/50 py-6 text-center text-xs text-muted-foreground">
           <p>GeoMotion · 基于 AI + GeoGebra 的几何教学工具</p>

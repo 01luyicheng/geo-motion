@@ -17,6 +17,33 @@ interface ImageUploaderProps {
 
 const MAX_SIZE_DEFAULT = 10; // MB
 
+/**
+ * 通过文件头魔数验证图片格式，防止 MIME 类型伪造（Issue #10）
+ * 支持 JPEG (FF D8 FF)、PNG (89 50 4E 47)、WEBP (RIFF....WEBP)
+ */
+function validateMagicBytes(file: File): Promise<boolean> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const buf = e.target?.result;
+      if (!(buf instanceof ArrayBuffer)) { resolve(false); return; }
+      const bytes = new Uint8Array(buf);
+      // JPEG: FF D8 FF
+      if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) { resolve(true); return; }
+      // PNG: 89 50 4E 47 0D 0A 1A 0A
+      if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) { resolve(true); return; }
+      // WEBP: 52 49 46 46 xx xx xx xx 57 45 42 50
+      if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+          bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+        resolve(true); return;
+      }
+      resolve(false);
+    };
+    reader.onerror = () => resolve(false);
+    reader.readAsArrayBuffer(file.slice(0, 12));
+  });
+}
+
 export function ImageUploader({
   label = '上传图片',
   hint = '支持 JPG、PNG、WEBP，最大 10MB',
@@ -40,6 +67,12 @@ export function ImageUploader({
       }
       if (file.size > maxSizeMB * 1024 * 1024) {
         setError(`图片大小超过 ${maxSizeMB}MB 限制`);
+        return;
+      }
+      // 魔数验证：防止 MIME 类型伪造
+      const validMagic = await validateMagicBytes(file);
+      if (!validMagic) {
+        setError('文件格式无效，请上传真实的 JPG、PNG 或 WEBP 图片');
         return;
       }
       const dataUri = await fileToBase64(file);
