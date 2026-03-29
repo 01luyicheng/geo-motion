@@ -9,8 +9,8 @@
 ### 0. 从仓库克隆代码
 
 ```powershell
-# 克隆项目（替换为你的实际仓库地址）
-git clone https://github.com/你的用户名/geo-motion.git
+# 克隆项目
+git clone https://github.com/01luyicheng/geo-motion.git
 cd geo-motion
 ```
 
