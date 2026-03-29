@@ -6,6 +6,14 @@
 
 ## 一、首次环境配置（新成员）
 
+### 0. 从仓库克隆代码
+
+```powershell
+# 克隆项目（替换为你的实际仓库地址）
+git clone https://github.com/你的用户名/geo-motion.git
+cd geo-motion
+```
+
 ### 1. 安装 Git
 
 1. 下载 Git for Windows：https://git-scm.com/download/win
@@ -57,11 +65,17 @@
 
 ---
 
-## 二、代码更新（已拉取旧代码的成员）
+## 二、代码更新（已从仓库拉取旧代码的成员）
 
-如果你之前已经拉取过代码，需要更新到最新版本：
+如果你之前已经从仓库拉取过代码，需要更新到最新版本：
 
-### 步骤 1：保存当前工作（如有未提交更改）
+### 步骤 1：进入项目目录
+
+```powershell
+cd geo-motion
+```
+
+### 步骤 2：保存当前工作（如有未提交更改）
 
 ```powershell
 # 查看当前状态
@@ -71,13 +85,10 @@ git status
 git stash
 ```
 
-### 步骤 2：拉取最新代码
+### 步骤 3：从仓库拉取最新代码
 
 ```powershell
-# 切换到项目目录
-cd geo-motion
-
-# 拉取最新代码
+# 从远程仓库拉取最新代码
 git pull origin main
 ```
 
@@ -92,7 +103,7 @@ nvm use 24
 node -v  # 应显示 v24.x.x
 ```
 
-### 步骤 4：重新安装依赖
+### 步骤 4：进入前端目录并重新安装依赖
 
 ```powershell
 cd frontend
@@ -101,7 +112,7 @@ cd frontend
 rm -rf node_modules
 rm package-lock.json
 
-# 重新安装
+# 重新安装依赖
 npm install
 ```
 
@@ -117,7 +128,7 @@ git stash pop
 npm run dev
 ```
 
-访问 http://localhost:3000
+访问 http://localhost:3000 查看应用
 
 ---
 
