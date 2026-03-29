@@ -2,306 +2,299 @@
 
 ## 系统架构
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                        Frontend                              │
 │   Next.js 14 + TypeScript + Tailwind CSS                    │
-│   ┌─────────────┐  ┌─────────────────────────────────────┐ │
-│   │  图片上传   │  │       GeoGebra 嵌入                  │ │
-│   └─────────────┘  │  (图形渲染 + 交互 + 动画)            │ │
-│                    └─────────────────────────────────────┘ │
+│   页面: /, /analyze/[id]                                    │
+│   组件: ImageUploader, GeoGebraViewer, AnimationControls    │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                     Next.js API Routes                       │
-│   /api/analyze          /api/generate-graphic               │
+│   /api/analyze  /api/generate-graphic  /api/fix-commands    │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                     OpenRouter API                           │
-│   调用 GPT-4 Vision 或其他 VLM                               │
+│   可配置多模态模型（默认 qwen/qwen3-vl-235b-a22b-instruct）  │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    GeoGebra Runtime                          │
+│   通过 deployggb.js 在前端渲染与交互                         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 前端架构
+## 当前实现对齐（2026-03-20）
 
-### 目录结构
+### 前端关键入口
 
-```
+1. 首页流程编排: `frontend/src/app/page.tsx`
+  - 双模式入口（分析几何题 / 草图转精确图）。
+  - 支持流式输出、取消请求、语法校验重试、实时 GeoGebra 预览。
+
+2. 结果页交互: `frontend/src/app/analyze/[id]/page.tsx`
+  - 支持动画播放、命令复制、SVG 导出、命令自动修复。
+  - 分享按钮当前只复制 URL，结果仍依赖本地存储。
+
+3. 上传组件: `frontend/src/components/ImageUploader.tsx`
+  - 已实现文件类型、大小、魔数校验（JPEG/PNG/WEBP）。
+
+4. 图形渲染: `frontend/src/components/GeoGebraViewer.tsx`
+  - 已实现脚本加载超时、错误回调、增量执行与重试。
+
+### API 关键入口
+
+1. `POST /api/analyze` -> `frontend/src/app/api/analyze/route.ts`
+2. `POST /api/generate-graphic` -> `frontend/src/app/api/generate-graphic/route.ts`
+3. `POST /api/fix-commands` -> `frontend/src/app/api/fix-commands/route.ts`
+
+### 存储现状
+
+1. 结果存储在浏览器 localStorage（`setStoredResult/getStoredResult`）。
+2. 风险：跨设备分享不可用；历史检索能力不足。
+
+---
+
+## 前端目录（核心）
+
+```text
 frontend/src/
 ├── app/
-│   ├── page.tsx                 # 首页
-│   ├── layout.tsx               # 布局
-│   ├── globals.css              # 全局样式
+│   ├── page.tsx
+│   ├── analyze/[id]/page.tsx
 │   └── api/
-│       ├── analyze/
-│       │   └── route.ts         # 分析接口
-│       └── generate-graphic/
-│           └── route.ts         # 图形生成接口
+│       ├── analyze/route.ts
+│       ├── generate-graphic/route.ts
+│       └── fix-commands/route.ts
 ├── components/
-│   ├── ui/                      # shadcn/ui 组件
-│   ├── GeoGebraViewer.tsx       # GeoGebra 嵌入组件
-│   └── ImageUploader.tsx        # 图片上传组件
+│   ├── ImageUploader.tsx
+│   ├── GeoGebraViewer.tsx
+│   └── AnimationControls.tsx
+├── hooks/
+│   ├── useAnimation.ts
+│   ├── useRealtimeGeoGebra.ts
+│   └── useStreamContent.ts
 ├── lib/
-│   └── openrouter.ts            # OpenRouter API 封装
-└── types/
-    └── index.ts                 # 类型定义
+│   ├── openrouter.ts
+│   ├── stream.ts
+│   └── utils.ts
+└── types/index.ts
 ```
 
 ---
 
-## GeoGebra 嵌入
+## 关键数据流
 
-### 加载 GeoGebra Applet
+### 流程 A: 几何题分析
 
-```typescript
-// components/GeoGebraViewer.tsx
-'use client';
+1. 用户上传题图 -> `ImageUploader`。
+2. 首页调用 `/api/analyze`，通过 `streamRequest` 接收 SSE。
+3. `useStreamContent` 聚合 chunk，`useRealtimeGeoGebra` 解析增量命令。
+4. 解析完成后保存结果到 localStorage 并跳转结果页。
+5. 结果页用 `GeoGebraViewer` 渲染，`AnimationControls` 控制播放。
 
-import { useEffect, useRef } from 'react';
+### 流程 B: 草图生成
 
-interface GeoGebraViewerProps {
-  commands: string;              // GeoGebra 命令脚本
-  width?: number;
-  height?: number;
-  showToolbar?: boolean;
-}
+1. 用户输入文本 + 可选草图。
+2. 首页调用 `/api/generate-graphic`（SSE）。
+3. 同流程 A 进行命令解析、校验、保存与展示。
 
-export function GeoGebraViewer({
-  commands,
-  width = 800,
-  height = 500,
-  showToolbar = false,
-}: GeoGebraViewerProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const appletRef = useRef<any>(null);
+### 流程 C: 命令自动修复
 
-  useEffect(() => {
-    // 动态加载 GeoGebra 脚本
-    const script = document.createElement('script');
-    script.src = 'https://www.geogebra.org/apps/deployggb.js';
-    script.onload = () => {
-      const ggbApplet = new (window as any).GGBApplet({
-        appName: 'geometry',
-        width,
-        height,
-        showToolBar: showToolbar,
-        showAlgebraInput: false,
-        showMenuBar: false,
-        enableLabelDrags: false,
-        enableShiftDragZoom: true,
-      }, true);
-
-      ggbApplet.inject(containerRef.current);
-      appletRef.current = ggbApplet;
-
-      // 执行命令
-      commands.split('\n').forEach((cmd) => {
-        if (cmd.trim()) {
-          ggbApplet.evalCommand(cmd.trim());
-        }
-      });
-    };
-    document.head.appendChild(script);
-
-    return () => {
-      document.head.removeChild(script);
-    };
-  }, [commands, width, height, showToolbar]);
-
-  return <div ref={containerRef} />;
-}
-```
-
-### 逐行执行动画
-
-```typescript
-// 播放动画：逐行执行 GeoGebra 命令
-function playAnimation(commands: string, delay: number = 1000) {
-  const lines = commands.split('\n').filter(l => l.trim());
-  let index = 0;
-
-  const interval = setInterval(() => {
-    if (index < lines.length) {
-      appletRef.current?.evalCommand(lines[index]);
-      index++;
-    } else {
-      clearInterval(interval);
-    }
-  }, delay);
-
-  return () => clearInterval(interval);
-}
-```
+1. `GeoGebraViewer` 上报命令执行错误。
+2. 结果页调用 `/api/fix-commands`。
+3. 成功后覆盖本地结果并重新渲染。
 
 ---
 
-## 数据类型
-
-### GeoGebraCommand
-
-```typescript
-interface GeoGebraCommand {
-  type: 'point' | 'line' | 'segment' | 'polygon' | 'circle' | 'angle' | 'text';
-  name: string;
-  definition: string;
-  style?: {
-    color?: string;
-    thickness?: number;
-    lineStyle?: number;          // 1=实线, 2=虚线
-  };
-}
-```
-
-### AnalysisResult
-
-```typescript
-interface AnalysisResult {
-  id: string;
-  geogebra: string;              // GeoGebra 命令脚本
-  conditions: string[];          // 已知条件
-  goal: string;                  // 求解目标
-  solution: string[];            // 解题步骤
-}
-```
-
----
-
-## API 接口规范
+## API 协议（现行）
 
 ### POST /api/analyze
 
-**请求：**
-```typescript
+请求体:
+
+```json
 {
-  image: string;        // Base64 编码的图片，含 data URI 前缀
-                       // 例如: "data:image/jpeg;base64,/9j/4AAQ..."
+  "image": "data:image/jpeg;base64,...",
+  "retryCount": 0,
+  "previousError": "可选"
 }
 ```
 
-**响应：**
-```typescript
-{
-  success: boolean;
-  data?: AnalysisResult;
-  error?: { code: string; message: string };
-}
+响应: SSE
+
+```text
+data: {"content":"..."}
+data: {"content":"..."}
+data: [DONE]
 ```
 
 ### POST /api/generate-graphic
 
-**请求：**
-```typescript
+请求体:
+
+```json
 {
-  text: string;         // 题目文本
-  sketch?: string;      // 草图 Base64（可选），含 data URI 前缀
+  "text": "题目描述",
+  "sketch": "data:image/png;base64,...",
+  "retryCount": 0,
+  "previousError": "可选"
 }
 ```
 
-**响应：**
-```typescript
+响应: SSE（同上）
+
+### POST /api/fix-commands
+
+请求体:
+
+```json
 {
-  success: boolean;
-  data?: {
-    id: string;
-    geogebra: string;   // GeoGebra 命令脚本
-    format: 'svg' | 'png';
-    content: string;    // SVG 字符串或 PNG Base64
-  };
-  error?: { code: string; message: string };
+  "originalCommands": "A=(0,0)\\nB=(1,0)",
+  "errors": [{ "command": "...", "error": "...", "index": 0 }],
+  "conditions": [],
+  "goal": "",
+  "retryCount": 0
 }
 ```
+
+响应体:
+
+```json
+{
+  "success": true,
+  "geogebra": "...",
+  "fixedCommands": ["..."],
+  "message": "..."
+}
+```
+
+---
+
+## 目标架构（AI 响应与前端体验重写）
+
+### 1) 协议层：SSE v2 事件化
+
+将当前 `data: { content }` 的单一流，升级为带事件语义的统一协议。
+
+标准事件字段：
+
+1. `requestId`: 请求唯一 ID
+2. `seq`: 递增序号
+3. `phase`: 生命周期阶段
+4. `event`: 事件类型
+5. `payload`: 数据体
+6. `ts`: 时间戳
+
+事件类型：
+
+1. `lifecycle.started`
+2. `content.delta`
+3. `command.delta`
+4. `validation.result`
+5. `recovery.attempt`
+6. `recovery.result`
+7. `lifecycle.done`
+8. `lifecycle.error`
+
+示例：
+
+```text
+data: {"requestId":"req_xxx","seq":1,"phase":"submitting","event":"lifecycle.started","payload":{},"ts":"2026-03-21T08:00:00.000Z"}
+data: {"requestId":"req_xxx","seq":2,"phase":"streaming","event":"content.delta","payload":{"text":"{"},"ts":"2026-03-21T08:00:00.300Z"}
+data: {"requestId":"req_xxx","seq":3,"phase":"streaming","event":"command.delta","payload":{"command":"A = (0, 0)"},"ts":"2026-03-21T08:00:00.450Z"}
+data: {"requestId":"req_xxx","seq":4,"phase":"done","event":"lifecycle.done","payload":{},"ts":"2026-03-21T08:00:02.100Z"}
+```
+
+迁移期要求：前端同时兼容 v1（仅 content/error）与 v2（事件化）。
+
+### 2) 状态层：统一状态机
+
+首页请求链路采用单状态机：
+
+1. `idle`
+2. `submitting`
+3. `waiting_first_byte`
+4. `streaming`
+5. `validating`
+6. `recovering`
+7. `success`
+8. `failed_recoverable`
+9. `failed_terminal`
+10. `cancelling`
+11. `cancelled`
+
+所有按钮状态、提示文案、重试入口与取消行为由状态机派生。
+
+### 3) 渲染层：增量优先
+
+1. 文本流按 chunk 增量拼接，避免全量重扫。
+2. GeoGebra 优先执行 `command.delta` 增量命令。
+3. 增量执行失败时，降级到全量重建（保证正确性）。
+4. 语法验证与命令修复统一为同一恢复链路，避免跨页面逻辑分裂。
+
+### 4) 可观测性与 SLO
+
+核心指标：
+
+1. TTFB（提交到首事件）
+2. 首条可读文本时间
+3. 取消生效率
+4. 失败恢复率
+5. 无反馈空窗占比（>4s）
+
+目标值（P75/比率）：
+
+1. TTFB <= 2.5s
+2. 首条可读文本 <= 3.0s
+3. 取消生效率 >= 98%
+4. 失败恢复率 >= 80%
+5. 无反馈空窗占比 <= 5%
+
+### 5) 实施路线
+
+1. Phase 1（1-2 周）: 上线 SSE v2 协议与埋点，保留 v1 兼容。
+2. Phase 2（1-2 周）: 首页状态机重构，统一取消/重试/修复。
+3. Phase 3（1-2 周）: 命令增量渲染优化 + 服务端临时分享能力。
 
 ---
 
 ## VLM 集成
 
-### OpenRouter 调用
+核心文件: `frontend/src/lib/openrouter.ts`
 
-```typescript
-// lib/openrouter.ts
+1. 非流式调用: `callOpenRouter`
+2. 流式调用: `streamOpenRouter`
+3. Prompt 常量:
+  - `ANALYZE_SYSTEM_PROMPT`
+  - `GENERATE_SYSTEM_PROMPT`
+  - `FIX_COMMANDS_SYSTEM_PROMPT`
 
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+模型配置:
 
-export async function analyzeGeometry(imageBase64: string): Promise<AnalysisResult> {
-  const response = await fetch(OPENROUTER_API_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'openai/gpt-4-vision-preview',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: VLM_PROMPT },
-            { type: 'image_url', image_url: { url: imageBase64 } }
-          ]
-        }
-      ]
-    })
-  });
-
-  const data = await response.json();
-  return JSON.parse(data.choices[0].message.content);
-}
-```
-
-### VLM Prompt 模板
-
-```
-你是一个几何数学专家。请分析这张几何题目图片。
-
-## 任务
-1. 识别所有几何图形
-2. 提取已知条件
-3. 识别求解目标
-4. 给出解题步骤
-
-## 输出格式（JSON）
-{
-  "geogebra": "A = (0, 0)\\nB = (5, 0)\\nC = (2.5, 4.33)\\np = Polygon(A, B, C)",
-  "conditions": ["AB = AC", "∠A = 60°"],
-  "goal": "求∠B的度数",
-  "solution": ["根据等腰三角形性质...", "∠B = (180° - 60°) / 2 = 60°"]
-}
-
-## GeoGebra 命令参考
-- 点: A = (x, y)
-- 线段: s = Segment(A, B)
-- 多边形: p = Polygon(A, B, C)
-- 圆: c = Circle(A, B) 或 c = Circle(A, 3)
-- 角度: α = Angle(B, A, C)
-- 中点: M = Midpoint(A, B)
-- 垂线: PerpendicularLine(A, s)
-- 平行线: Parallel(A, s)
-- 文本: Text("内容", position)
-- 虚线: SetLineStyle(element, 2)
-
-坐标系建议：使用合理的实际坐标，便于在 GeoGebra 中显示。
+```env
+OPENROUTER_API_KEY=...
+OPENROUTER_MODEL=qwen/qwen3-vl-235b-a22b-instruct
 ```
 
 ---
 
 ## 部署
 
-### 环境变量
-
-```env
-OPENROUTER_API_KEY=your-api-key
-```
-
-### 部署平台
-
-- 推荐：Vercel
-- 无需独立后端，Next.js API Routes 足够
+1. 平台: Vercel（推荐）
+2. 前端与 API 路由同仓部署
+3. 关键环境变量:
+  - `OPENROUTER_API_KEY`
+  - `OPENROUTER_MODEL`
+  - `NEXT_PUBLIC_BASE_URL`（可选）
 
 ---
 
-*文档版本: 3.0 | 最后更新: 2026-03-10*
+*文档版本: 3.3 | 最后更新: 2026-03-21*
