@@ -1,0 +1,80 @@
+name: Copilot Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  copilot-review:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login != 'github-actions[bot]'
+    
+    steps:
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Request Copilot Review
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { data: reviews } = await github.rest.pulls.listReviews({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.issue.number
+          });
+          
+          // 检查是否已有 Copilot 审查
+          const hasCopilotReview = reviews.some(review => 
+            review.user.login === 'github-actions[bot]' || 
+            review.user.type === 'Bot'
+          );
+          
+          if (!hasCopilotReview) {
+            // 添加提示评论，提醒使用 Copilot 审查
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `🤖 **GitHub Copilot 代码审查提示**
+              
+              团队成员可以使用以下方式审查此 PR：
+              
+              1. **在 GitHub 网页上**：点击 "Reviewers" -> 选择 "Copilot"
+              2. **在 VS Code 中**：打开 PR，使用 Copilot Chat 审查代码
+              
+              审查要点：
+              - 代码逻辑是否正确
+              - 是否有潜在的错误
+              - 代码风格是否一致
+              - 是否有性能问题`
+            });
+          }
+    
+    - name: Check PR Description
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          
+          // 检查 PR 描述是否为空或太短
+          if (!pr.body || pr.body.length < 20) {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `⚠️ **提示**：PR 描述过于简单，请补充以下信息：
+              
+              - 这个 PR 做了什么改动？
+              - 为什么要做这个改动？
+              - 如何测试这个改动？
+              
+              详细的 PR 描述有助于审查者更快理解你的代码。`
+            });
+          }
