@@ -1,7 +1,7 @@
 # GeoMotion Docker 部署文件
-# 基于 Node.js 20 LTS Alpine 镜像
+# 基于 Node.js 24 LTS Alpine 镜像
 
-FROM node:20-alpine
+FROM node:24-alpine
 
 # 设置工作目录
 WORKDIR /app
