@@ -6,7 +6,18 @@
 
 ## 一、首次环境配置（新成员）
 
-### 0. 从仓库克隆代码
+### 1. 安装 Git
+
+1. 下载 Git for Windows：https://git-scm.com/download/win
+2. 安装时选择：
+   - **Use Git from Git Bash only** (推荐) 或 **Git from the command line and also from 3rd-party software**
+   - **Checkout Windows-style, commit Unix-style line endings**
+3. 验证安装：
+   ```powershell
+   git --version
+   ```
+
+### 2. 从仓库克隆代码
 
 ```powershell
 # 克隆项目
@@ -14,7 +25,7 @@ git clone https://github.com/01luyicheng/geo-motion.git
 cd geo-motion
 ```
 
-### 1. 安装 Git
+### 3. 安装 Node.js 24
 
 1. 下载 Git for Windows：https://git-scm.com/download/win
 2. 安装时选择：
