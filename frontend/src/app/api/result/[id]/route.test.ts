@@ -1,6 +1,29 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { GET } from './route';
-import { memoryStore } from '../../save-result/route';
+import { POST as saveResultPost } from '../../save-result/route';
+import { memoryStore } from '@/app/api/lib/resultStore';
+
+async function createTestResult(result: {
+  id: string;
+  geogebra: string;
+  conditions: string[];
+  goal: string;
+  solution: unknown[];
+  createdAt: string;
+}): Promise<string> {
+  const req = new Request('http://localhost/api/save-result', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ result }),
+  }) as unknown as import('next/server').NextRequest;
+
+  const res = await saveResultPost(req);
+  const body = await res.json();
+  if (!body.success) {
+    throw new Error(`Failed to create test result: ${JSON.stringify(body.error)}`);
+  }
+  return body.data.id as string;
+}
 
 describe('GET /api/result/[id]', () => {
   beforeEach(() => {
@@ -8,7 +31,6 @@ describe('GET /api/result/[id]', () => {
   });
 
   it('返回存在的分析结果', async () => {
-    const id = 'test-result-id';
     const result = {
       id: 'internal-id',
       geogebra: 'A=(1,1)',
@@ -18,10 +40,7 @@ describe('GET /api/result/[id]', () => {
       createdAt: new Date().toISOString(),
     };
 
-    memoryStore.set(id, {
-      result,
-      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-    });
+    const id = await createTestResult(result);
 
     const req = new Request(`http://localhost/api/result/${id}`) as unknown as import('next/server').NextRequest;
     const res = await GET(req, { params: Promise.resolve({ id }) });
@@ -54,10 +73,12 @@ describe('GET /api/result/[id]', () => {
       createdAt: new Date().toISOString(),
     };
 
-    memoryStore.set(id, {
-      result,
-      expiresAt: Date.now() - 1000, // 已过期
-    });
+    // 直接通过存储设置过期数据（仅用于测试过期场景）
+    const { getResultStore, createStoredEntry } = await import('@/app/api/lib/resultStore');
+    const store = getResultStore();
+    const entry = createStoredEntry(result);
+    entry.expiresAt = Date.now() - 1000; // 已过期
+    store.set(id, entry);
 
     const req = new Request(`http://localhost/api/result/${id}`) as unknown as import('next/server').NextRequest;
     const res = await GET(req, { params: Promise.resolve({ id }) });
@@ -66,6 +87,6 @@ describe('GET /api/result/[id]', () => {
     const body = await res.json();
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('EXPIRED');
-    expect(memoryStore.has(id)).toBe(false);
+    expect(store.has(id)).toBe(false);
   });
 });
