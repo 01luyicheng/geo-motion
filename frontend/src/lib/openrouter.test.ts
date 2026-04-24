@@ -47,7 +47,13 @@ describe('sanitizeInput', () => {
 
   it('空输入应返回空字符串', () => {
     expect(sanitizeInput('')).toBe('');
+  });
+
+  it('null 输入应返回空字符串', () => {
     expect(sanitizeInput(null as unknown as string)).toBe('');
+  });
+
+  it('undefined 输入应返回空字符串', () => {
     expect(sanitizeInput(undefined as unknown as string)).toBe('');
   });
 
