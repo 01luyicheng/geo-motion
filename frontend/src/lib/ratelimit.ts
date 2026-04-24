@@ -47,22 +47,45 @@ let lastCleanup = Date.now();
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 分钟
 
 /**
+ * 信任级别配置
+ * - 'edge': 优先信任 Edge Runtime 提供的 request.ip（最安全，生产环境默认）
+ * - 'proxy': 信任 x-forwarded-for / x-real-ip（部署在可信代理后时启用）
+ * - 'dev': 开发环境，回退到 forwarded 头
+ */
+const TRUST_LEVEL = process.env.RATELIMIT_TRUST_LEVEL ?? 'edge';
+
+/**
  * 获取客户端真实 IP
- * 优先从 x-forwarded-for 获取，其次 x-real-ip，最后使用 socket IP
+ * 优先使用 NextRequest 的 ip 属性（Edge Runtime 提供），仅在开发/代理环境回退到 header
  */
 export function getClientIp(request: NextRequest): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) {
-    // x-forwarded-for 可能包含多个 IP，取第一个
-    const firstIp = forwarded.split(',')[0].trim();
-    if (firstIp) return firstIp;
+  // 开发环境：允许回退到 x-forwarded-for
+  if (TRUST_LEVEL === 'dev') {
+    const forwarded = request.headers.get('x-forwarded-for');
+    if (forwarded) {
+      const firstIp = forwarded.split(',')[0].trim();
+      if (firstIp) return firstIp;
+    }
+    const realIp = request.headers.get('x-real-ip');
+    if (realIp) return realIp;
   }
 
-  const realIp = request.headers.get('x-real-ip');
-  if (realIp) return realIp;
+  // proxy 环境：信任代理头，但 Edge Runtime ip 仍优先
+  if (TRUST_LEVEL === 'proxy') {
+    const edgeIp = (request as unknown as Record<string, string | undefined>).ip;
+    if (edgeIp) return edgeIp;
 
-  // NextRequest 的 ip 属性（Edge Runtime）
-  return (request as unknown as Record<string, string>).ip ?? 'unknown';
+    const forwarded = request.headers.get('x-forwarded-for');
+    if (forwarded) {
+      const firstIp = forwarded.split(',')[0].trim();
+      if (firstIp) return firstIp;
+    }
+    const realIp = request.headers.get('x-real-ip');
+    if (realIp) return realIp;
+  }
+
+  // edge 环境（默认）：仅使用 Edge Runtime 提供的 ip
+  return (request as unknown as Record<string, string | undefined>).ip ?? 'unknown';
 }
 
 /**
