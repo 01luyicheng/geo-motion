@@ -52,15 +52,19 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 分钟
  * - 'proxy': 信任 x-forwarded-for / x-real-ip（部署在可信代理后时启用）
  * - 'dev': 开发环境，回退到 forwarded 头
  */
-const TRUST_LEVEL = process.env.RATELIMIT_TRUST_LEVEL ?? 'edge';
+function getTrustLevel(): string {
+  return process.env.RATELIMIT_TRUST_LEVEL ?? 'edge';
+}
 
 /**
  * 获取客户端真实 IP
  * 优先使用 NextRequest 的 ip 属性（Edge Runtime 提供），仅在开发/代理环境回退到 header
  */
 export function getClientIp(request: NextRequest): string {
+  const trustLevel = getTrustLevel();
+
   // 开发环境：允许回退到 x-forwarded-for
-  if (TRUST_LEVEL === 'dev') {
+  if (trustLevel === 'dev') {
     const forwarded = request.headers.get('x-forwarded-for');
     if (forwarded) {
       const firstIp = forwarded.split(',')[0].trim();
@@ -71,7 +75,7 @@ export function getClientIp(request: NextRequest): string {
   }
 
   // proxy 环境：信任代理头，但 Edge Runtime ip 仍优先
-  if (TRUST_LEVEL === 'proxy') {
+  if (trustLevel === 'proxy') {
     const edgeIp = (request as unknown as Record<string, string | undefined>).ip;
     if (edgeIp) return edgeIp;
 

@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import type { Step } from '@/types';
 
 /**
  * 从流式内容中提取有效的 GeoGebra 命令
@@ -11,7 +12,7 @@ export function useRealtimeGeoGebra() {
     geogebra: string;
     conditions: string[];
     goal: string;
-    solution: string[];
+    solution: string[] | Step[];
   } | null>(null);
   
   // 使用 ref 跟踪已处理的内容长度，避免重复解析
@@ -77,11 +78,28 @@ export function useRealtimeGeoGebra() {
       const parsed = JSON.parse(jsonStr);
       
       if (parsed.geogebra && typeof parsed.geogebra === 'string') {
+        // 兼容处理 solution 字段：如果是 Step 对象数组，提取 text 字段
+        const rawSolution = parsed.solution || [];
+        const normalizedSolution: string[] | Step[] = Array.isArray(rawSolution)
+          ? rawSolution.map((item: unknown) => {
+              if (typeof item === 'string') return item;
+              if (
+                item &&
+                typeof item === 'object' &&
+                'text' in item &&
+                typeof (item as Record<string, unknown>).text === 'string'
+              ) {
+                return item as Step;
+              }
+              return String(item);
+            })
+          : [];
+
         setParsedData({
           geogebra: parsed.geogebra,
           conditions: parsed.conditions || [],
           goal: parsed.goal || '',
-          solution: parsed.solution || [],
+          solution: normalizedSolution,
         });
         setIsComplete(true);
         return true;
