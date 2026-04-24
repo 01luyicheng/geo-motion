@@ -28,6 +28,7 @@ describe('POST /api/analyze', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    resetStore();
   });
 
   it('未提供图片时返回 400', async () => {
