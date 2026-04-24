@@ -28,6 +28,7 @@ describe('POST /api/analyze', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    vi.resetAllMocks();
     resetStore();
   });
 

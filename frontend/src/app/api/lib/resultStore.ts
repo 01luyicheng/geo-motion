@@ -18,6 +18,7 @@ export interface IResultStore {
   has(id: string): boolean;
   clear(): void;
   get size(): number;
+  entries(): IterableIterator<[string, StoredEntry]>;
 }
 
 // 内存存储实现（带容量限制）
@@ -29,6 +30,10 @@ class MemoryResultStore implements IResultStore {
   }
 
   set(id: string, entry: StoredEntry): void {
+    // 防御性容量检查
+    if (!this.store.has(id) && this.store.size >= MAX_CAPACITY) {
+      throw new Error('Storage capacity exceeded');
+    }
     this.store.set(id, entry);
   }
 
@@ -47,6 +52,10 @@ class MemoryResultStore implements IResultStore {
   get size(): number {
     return this.store.size;
   }
+
+  entries(): IterableIterator<[string, StoredEntry]> {
+    return this.store.entries();
+  }
 }
 
 // 单例存储实例
@@ -56,16 +65,14 @@ const memoryStore = new MemoryResultStore();
 setInterval(() => {
   const now = Date.now();
   let cleaned = 0;
-  // 使用内部 Map 进行清理
-  const internalStore = (memoryStore as unknown as { store: Map<string, StoredEntry> }).store;
-  for (const [key, entry] of internalStore) {
+  for (const [key, entry] of memoryStore.entries()) {
     if (entry.expiresAt < now) {
-      internalStore.delete(key);
+      memoryStore.delete(key);
       cleaned++;
     }
   }
   if (cleaned > 0) {
-    console.log(`[resultStore] 清理 ${cleaned} 条过期数据，剩余 ${internalStore.size} 条`);
+    console.log(`[resultStore] 清理 ${cleaned} 条过期数据，剩余 ${memoryStore.size} 条`);
   }
 }, 10 * 60 * 1000);
 

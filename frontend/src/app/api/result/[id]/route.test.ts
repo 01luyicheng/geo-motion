@@ -30,6 +30,10 @@ describe('GET /api/result/[id]', () => {
     memoryStore.clear();
   });
 
+  afterEach(() => {
+    memoryStore.clear();
+  });
+
   it('返回存在的分析结果', async () => {
     const result = {
       id: 'internal-id',
