@@ -56,8 +56,27 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // ── 2. 速率限制检查（仅 API 路由）───────────────────────────
+  // ── 2. API 路由安全校验 ────────────────────────────────────
   if (request.nextUrl.pathname.startsWith('/api/')) {
+    // 拒绝非允许来源的请求（防范 CSRF）
+    if (!isAllowedOrigin && origin) {
+      return new NextResponse(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: '来源不被允许',
+          },
+        }),
+        {
+          status: 403,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+    }
+
     const ip = getClientIp(request);
     const route = request.nextUrl.pathname;
 
@@ -113,7 +132,8 @@ export function middleware(request: NextRequest) {
  * 设置 CORS 头
  */
 function setCorsHeaders(response: NextResponse, origin: string) {
-  response.headers.set('Access-Control-Allow-Origin', origin || '*');
+  // 空 origin 时不设置通配符，保持当前域
+  response.headers.set('Access-Control-Allow-Origin', origin || 'null');
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   response.headers.set('Access-Control-Max-Age', '86400');

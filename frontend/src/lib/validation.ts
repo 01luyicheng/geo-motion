@@ -75,7 +75,7 @@ export const saveResultRequestSchema = z.object({
       geogebra: z.string().min(1),
       conditions: z.array(z.string()),
       goal: z.string(),
-      solution: z.array(z.union([z.string(), z.object({ text: z.string(), commandIndices: z.array(z.number()) })])).optional(),
+      solution: z.array(z.union([z.string(), z.object({ text: z.string(), commandIndices: z.array(z.number()), explanation: z.string().optional() })])).optional(),
       createdAt: z.string(),
     },
     { required_error: '未提供分析结果' }
