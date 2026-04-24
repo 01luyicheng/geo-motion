@@ -3,52 +3,51 @@ import {
   streamOpenRouter,
   ANALYZE_SYSTEM_PROMPT,
   type OpenRouterMessage,
+  sanitizeInput,
 } from '@/lib/openrouter';
+import { analyzeRequestSchema, safeParseJson } from '@/lib/validation';
+import {
+  getClientIp,
+  checkRateLimit,
+  createRateLimitResponse,
+  ROUTE_LIMITS,
+} from '@/lib/ratelimit';
 
 // 允许路由最多执行 300 秒（AI 响应可能较慢）
 export const maxDuration = 300;
 
-// 10MB 的 base64 编码长度限制（base64 编码会增加约 33%）
-const MAX_BASE64_LENGTH = 13_000_000;
-
 export async function POST(req: NextRequest) {
   const requestStart = Date.now();
-  
+
+  // ── 双重保护：路由层速率限制 ──
+  const ip = getClientIp(req);
+  const route = '/api/analyze';
+  const limitResult = checkRateLimit(ip, route, ROUTE_LIMITS[route]);
+  if (!limitResult.allowed) {
+    return createRateLimitResponse(limitResult);
+  }
+
   try {
-    const body = await req.json() as { 
-      image?: string;
-      retryCount?: number;
-      previousError?: string;
-    };
-
-    if (!body.image) {
+    // 使用 zod 验证请求体
+    const parseResult = await safeParseJson(req, analyzeRequestSchema);
+    if (!parseResult.success) {
       return new Response(
-        JSON.stringify({ success: false, error: { code: 'INVALID_IMAGE', message: '未提供图片' } }),
+        JSON.stringify({ success: false, error: parseResult.error }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    // 校验 base64 图片大小限制（约 10MB）
-    if (body.image.length > MAX_BASE64_LENGTH) {
-      return new Response(
-        JSON.stringify({ success: false, error: { code: 'IMAGE_TOO_LARGE', message: '图片大小超过 10MB 限制' } }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
+    const body = parseResult.data;
 
-    // 基本格式检查
-    if (!body.image.startsWith('data:image/')) {
-      return new Response(
-        JSON.stringify({ success: false, error: { code: 'INVALID_IMAGE', message: '图片格式错误，需为 data URI' } }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
+    // 清理输入，防止 prompt 注入
+    const previousError = body.previousError ? sanitizeInput(body.previousError) : undefined;
 
     // 构建用户提示，包含重试信息
-    let userPrompt = '请识别这道几何题，重建GeoGebra图形并给出简洁解题思路。严格按照系统提示的JSON格式输出。';
-    
-    if (body.retryCount && body.retryCount > 0 && body.previousError) {
-      userPrompt = `之前的生成结果有语法错误，请修正后重新生成。\n\n错误信息：${body.previousError}\n\n请重新识别这道几何题，生成正确的GeoGebra命令。注意检查：\n1. 所有括号必须成对出现\n2. 命令参数不能为空\n3. 不要使用中文字符\n4. 确保命令格式正确\n\n严格按照系统提示的JSON格式输出。`;
+    let userPrompt =
+      '请识别这道几何题，重建GeoGebra图形并给出简洁解题思路。严格按照系统提示的JSON格式输出。';
+
+    if (body.retryCount && body.retryCount > 0 && previousError) {
+      userPrompt = `之前的生成结果有语法错误，请修正后重新生成。\n\n错误信息：${previousError}\n\n请重新识别这道几何题，生成正确的GeoGebra命令。注意检查：\n1. 所有括号必须成对出现\n2. 命令参数不能为空\n3. 不要使用中文字符\n4. 确保命令格式正确\n\n严格按照系统提示的JSON格式输出。`;
     }
 
     const messages: OpenRouterMessage[] = [
@@ -89,10 +88,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : '服务器内部错误';
-    console.error(
-      `[analyze][${new Date().toISOString()}] 错误:`,
-      message
-    );
+    console.error(`[analyze][${new Date().toISOString()}] 错误:`, message);
     return new Response(
       JSON.stringify({ success: false, error: { code: 'VLM_ERROR', message } }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }

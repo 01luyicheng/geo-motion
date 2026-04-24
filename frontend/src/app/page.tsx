@@ -192,6 +192,26 @@ function HomeContent() {
 
           const id = generateId();
           setStoredResult(`analysis:${id}`, analysisResult);
+
+          // 异步保存到服务端，使分享链接可跨设备使用
+          try {
+            const saveRes = await fetch('/api/save-result', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ result: analysisResult }),
+            });
+            if (saveRes.ok) {
+              const saveData = (await saveRes.json()) as { success: boolean; data?: { id: string } };
+              if (saveData.success && saveData.data?.id) {
+                router.push(`/analyze/${saveData.data.id}?type=analyze`);
+                return;
+              }
+            }
+          } catch {
+            // 服务端保存失败时，fallback 到本地 ID
+            console.warn('[page] 服务端保存失败，使用本地 ID');
+          }
+
           router.push(`/analyze/${id}?type=analyze`);
           return; // 成功，退出函数
 
@@ -310,6 +330,26 @@ function HomeContent() {
 
           const id = generateId();
           setStoredResult(`analysis:${id}`, graphicResult);
+
+          // 异步保存到服务端，使分享链接可跨设备使用
+          try {
+            const saveRes = await fetch('/api/save-result', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ result: graphicResult }),
+            });
+            if (saveRes.ok) {
+              const saveData = (await saveRes.json()) as { success: boolean; data?: { id: string } };
+              if (saveData.success && saveData.data?.id) {
+                router.push(`/analyze/${saveData.data.id}?type=generate`);
+                return;
+              }
+            }
+          } catch {
+            // 服务端保存失败时，fallback 到本地 ID
+            console.warn('[page] 服务端保存失败，使用本地 ID');
+          }
+
           router.push(`/analyze/${id}?type=generate`);
           return; // 成功，退出函数
 
