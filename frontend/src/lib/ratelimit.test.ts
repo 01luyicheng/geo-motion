@@ -14,26 +14,59 @@ import {
 import { NextRequest, NextResponse } from 'next/server';
 
 describe('getClientIp', () => {
-  it('从 x-forwarded-for 获取第一个 IP', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('edge 模式（默认）：优先使用 request.ip，忽略 x-forwarded-for', () => {
+    const req = {
+      headers: new Map([['x-forwarded-for', '1.2.3.4, 5.6.7.8']]),
+      ip: '10.0.0.1',
+    } as unknown as NextRequest;
+    expect(getClientIp(req)).toBe('10.0.0.1');
+  });
+
+  it('edge 模式（默认）：无 request.ip 时返回 unknown，忽略 header', () => {
+    const req = {
+      headers: new Map([['x-forwarded-for', '1.2.3.4']]),
+    } as unknown as NextRequest;
+    expect(getClientIp(req)).toBe('unknown');
+  });
+
+  it('dev 模式：从 x-forwarded-for 获取第一个 IP', () => {
+    process.env.RATELIMIT_TRUST_LEVEL = 'dev';
     const req = {
       headers: new Map([['x-forwarded-for', '1.2.3.4, 5.6.7.8']]),
     } as unknown as NextRequest;
     expect(getClientIp(req)).toBe('1.2.3.4');
   });
 
-  it('从 x-real-ip 获取 IP', () => {
+  it('dev 模式：从 x-real-ip 获取 IP', () => {
+    process.env.RATELIMIT_TRUST_LEVEL = 'dev';
     const req = {
       headers: new Map([['x-real-ip', '9.8.7.6']]),
     } as unknown as NextRequest;
     expect(getClientIp(req)).toBe('9.8.7.6');
   });
 
-  it('回退到 request.ip', () => {
-    const req = {
-      headers: new Map(),
+  it('proxy 模式：优先 request.ip，其次 x-forwarded-for', () => {
+    process.env.RATELIMIT_TRUST_LEVEL = 'proxy';
+    const reqWithIp = {
+      headers: new Map([['x-forwarded-for', '1.2.3.4']]),
       ip: '10.0.0.1',
     } as unknown as NextRequest;
-    expect(getClientIp(req)).toBe('10.0.0.1');
+    expect(getClientIp(reqWithIp)).toBe('10.0.0.1');
+
+    const reqWithoutIp = {
+      headers: new Map([['x-forwarded-for', '1.2.3.4']]),
+    } as unknown as NextRequest;
+    expect(getClientIp(reqWithoutIp)).toBe('1.2.3.4');
   });
 
   it('无 IP 时返回 unknown', () => {
