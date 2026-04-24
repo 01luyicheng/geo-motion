@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST, memoryStore } from './route';
+import { POST } from './route';
+import { memoryStore } from '@/app/api/lib/resultStore';
 
 // 模拟 validation 模块
 vi.mock('@/lib/validation', async () => {
