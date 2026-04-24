@@ -16,43 +16,8 @@ vi.mock('@/lib/openrouter', () => ({
   sanitizeInput: vi.fn((input: string) => input),
 }));
 
-// 模拟 validation 模块
-vi.mock('@/lib/validation', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/validation')>('@/lib/validation');
-  return {
-    ...actual,
-    safeParseJson: vi.fn(async (req: Request, schema: unknown) => {
-      try {
-        const body = await req.json();
-        // 简单模拟验证逻辑
-        if (!body.image) {
-          return {
-            success: false,
-            error: { code: 'VALIDATION_ERROR', message: '图片不能为空' },
-          };
-        }
-        if (!body.image.startsWith('data:image/')) {
-          return {
-            success: false,
-            error: { code: 'VALIDATION_ERROR', message: '图片格式错误，需为 data URI' },
-          };
-        }
-        if (body.image.length > 13_000_000) {
-          return {
-            success: false,
-            error: { code: 'VALIDATION_ERROR', message: '图片大小超过 10MB 限制' },
-          };
-        }
-        return { success: true, data: body };
-      } catch {
-        return {
-          success: false,
-          error: { code: 'INVALID_JSON', message: '请求体不是有效的 JSON' },
-        };
-      }
-    }),
-  };
-});
+// 使用真实的 validation 模块（safeParseJson 使用 zod schema 验证）
+// 不再模拟 safeParseJson，确保测试使用的是真实实现
 
 describe('POST /api/analyze', () => {
   beforeEach(() => {
