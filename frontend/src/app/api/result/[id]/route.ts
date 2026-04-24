@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { memoryStore } from '../../save-result/route';
+import { getResultStore } from '@/app/api/lib/resultStore';
 
 export async function GET(
   _req: NextRequest,
@@ -18,7 +18,8 @@ export async function GET(
       );
     }
 
-    const entry = memoryStore.get(id);
+    const store = getResultStore();
+    const entry = store.get(id);
 
     if (!entry) {
       return new Response(
@@ -32,7 +33,7 @@ export async function GET(
 
     // 检查是否过期
     if (entry.expiresAt < Date.now()) {
-      memoryStore.delete(id);
+      store.delete(id);
       return new Response(
         JSON.stringify({
           success: false,

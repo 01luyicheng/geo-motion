@@ -7,6 +7,7 @@ import {
   createRateLimitResponse,
   addRateLimitHeaders,
   DEFAULT_LIMIT,
+  type RateLimitConfig,
 } from '@/lib/ratelimit';
 
 // 请求体大小限制：10MB
@@ -17,6 +18,12 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'https://localhost:3000',
 ];
+
+// GET /api/result/[id] 使用更宽松的速率限制（读取分享结果）
+const RESULT_GET_LIMIT: RateLimitConfig = {
+  windowMs: 60 * 1000,
+  maxRequests: 60,
+};
 
 /**
  * Next.js Middleware
@@ -53,7 +60,15 @@ export function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/api/')) {
     const ip = getClientIp(request);
     const route = request.nextUrl.pathname;
-    const config = matchRouteConfig(route) ?? DEFAULT_LIMIT;
+
+    // GET /api/result/[id] 使用独立配置
+    let config: RateLimitConfig;
+    if (request.method === 'GET' && route.startsWith('/api/result/')) {
+      config = RESULT_GET_LIMIT;
+    } else {
+      config = matchRouteConfig(route) ?? DEFAULT_LIMIT;
+    }
+
     const result = checkRateLimit(ip, route, config);
 
     if (!result.allowed) {

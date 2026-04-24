@@ -7,12 +7,6 @@ import {
   sanitizeInput,
 } from '@/lib/openrouter';
 import { fixCommandsRequestSchema, safeParseJson } from '@/lib/validation';
-import {
-  getClientIp,
-  checkRateLimit,
-  createRateLimitResponse,
-  ROUTE_LIMITS,
-} from '@/lib/ratelimit';
 
 // 允许路由最多执行 300 秒
 export const maxDuration = 300;
@@ -27,14 +21,6 @@ interface FixCommandsResponse {
 
 export async function POST(req: NextRequest) {
   const requestStart = Date.now();
-
-  // ── 双重保护：路由层速率限制 ──
-  const ip = getClientIp(req);
-  const route = '/api/fix-commands';
-  const limitResult = checkRateLimit(ip, route, ROUTE_LIMITS[route]);
-  if (!limitResult.allowed) {
-    return createRateLimitResponse(limitResult);
-  }
 
   try {
     // 使用 zod 验证请求体
