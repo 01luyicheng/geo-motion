@@ -124,9 +124,11 @@ function setCorsHeaders(response: NextResponse, origin: string) {
  */
 function setSecurityHeaders(response: NextResponse) {
   // Content-Security-Policy
+  // 注意：移除 'unsafe-inline'，保留 'unsafe-eval'（GeoGebra 需要）
+  // Next.js 会自动为内联脚本添加 nonce，这里配合 Next.js Script 组件使用
   const cspDirectives = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-eval' 'unsafe-inline'", // GeoGebra 需要 eval
+    "script-src 'self' 'unsafe-eval'", // GeoGebra 需要 eval；unsafe-inline 已移除
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "connect-src 'self' https://openrouter.ai",
