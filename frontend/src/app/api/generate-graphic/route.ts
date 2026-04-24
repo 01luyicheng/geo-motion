@@ -7,26 +7,12 @@ import {
   sanitizeInput,
 } from '@/lib/openrouter';
 import { generateGraphicRequestSchema, safeParseJson } from '@/lib/validation';
-import {
-  getClientIp,
-  checkRateLimit,
-  createRateLimitResponse,
-  ROUTE_LIMITS,
-} from '@/lib/ratelimit';
 
 // 允许路由最多执行 300 秒（AI 响应可能较慢）
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const requestStart = Date.now();
-
-  // ── 双重保护：路由层速率限制 ──
-  const ip = getClientIp(req);
-  const route = '/api/generate-graphic';
-  const limitResult = checkRateLimit(ip, route, ROUTE_LIMITS[route]);
-  if (!limitResult.allowed) {
-    return createRateLimitResponse(limitResult);
-  }
 
   try {
     // 使用 zod 验证请求体
