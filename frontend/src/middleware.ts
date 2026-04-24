@@ -31,7 +31,7 @@ const RESULT_GET_LIMIT: RateLimitConfig = {
  */
 export function middleware(request: NextRequest) {
   const origin = request.headers.get('origin') ?? '';
-  const isAllowedOrigin = ALLOWED_ORIGINS.includes(origin) || !origin;
+  const isAllowedOrigin = ALLOWED_ORIGINS.includes(origin);
 
   // ── 1. 请求体大小限制 ───────────────────────────────────────
   const contentLength = request.headers.get('content-length');
