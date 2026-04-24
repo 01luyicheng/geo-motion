@@ -123,11 +123,23 @@ function AnalyzeContent({ id }: { id: string }) {
 
   // 解析步骤数据（兼容旧数据字符串数组和新数据 Step 数组）
   const parsedSteps: Step[] = result
-    ? result.solution.map((s, i) => {
+    ? result.solution.map((s) => {
         if (typeof s === 'string') {
           return { text: s, commandIndices: [] };
         }
-        return s as Step;
+        // 运行时验证 Step 结构
+        if (
+          s &&
+          typeof s === 'object' &&
+          'text' in s &&
+          typeof (s as Record<string, unknown>).text === 'string' &&
+          'commandIndices' in s &&
+          Array.isArray((s as Record<string, unknown>).commandIndices)
+        ) {
+          return s as Step;
+        }
+        // 不符合 Step 结构时回退到字符串处理
+        return { text: String(s), commandIndices: [] };
       })
     : [];
 
