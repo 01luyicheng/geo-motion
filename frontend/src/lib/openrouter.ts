@@ -27,6 +27,36 @@ export interface OpenRouterOptions {
   responseFormat?: { type: 'json_object' | 'text' };
 }
 
+const isDev = process.env.NODE_ENV === 'development';
+
+/** 结构化日志（生产环境使用，只记录元数据） */
+function logStructured(
+  level: 'info' | 'error',
+  module: string,
+  message: string,
+  meta?: Record<string, unknown>
+) {
+  if (isDev) {
+    const ts = new Date().toISOString();
+    if (level === 'error') {
+      console.error(`[${module}][${ts}] ${message}`, meta ? JSON.stringify(meta) : '');
+    } else {
+      console.log(`[${module}][${ts}] ${message}`, meta ? JSON.stringify(meta) : '');
+    }
+  } else {
+    // 生产环境：输出结构化 JSON 日志，供日志收集系统处理
+    const logLine = JSON.stringify({
+      level,
+      module,
+      time: new Date().toISOString(),
+      message,
+      ...meta,
+    });
+    // eslint-disable-next-line no-console
+    console.log(logLine);
+  }
+}
+
 /**
  * 调用 OpenRouter API（非流式）
  */
@@ -53,14 +83,22 @@ export async function callOpenRouter(
     ...(options.responseFormat && { response_format: options.responseFormat }),
   });
 
-  console.log(`[OpenRouter][${new Date().toISOString()}] 开始调用 API, 模型:`, MODEL);
-  console.log(`[OpenRouter][${new Date().toISOString()}] 请求体大小:`, requestBody.length, '字符');
-  console.log(`[OpenRouter][${new Date().toISOString()}] 消息数量:`, messages.length);
+  logStructured('info', 'OpenRouter', '开始调用 API', {
+    model: MODEL,
+    bodySize: requestBody.length,
+    messageCount: messages.length,
+  });
+
+  if (isDev) {
+    console.log(`[OpenRouter][${new Date().toISOString()}] 消息数量:`, messages.length);
+  }
 
   try {
-    console.log(`[OpenRouter][${new Date().toISOString()}] 发送请求...`);
+    if (isDev) {
+      console.log(`[OpenRouter][${new Date().toISOString()}] 发送请求...`);
+    }
     const fetchStart = Date.now();
-    
+
     const response = await fetch(OPENROUTER_API_URL, {
       method: 'POST',
       headers: {
@@ -74,55 +112,54 @@ export async function callOpenRouter(
     });
 
     const elapsed = Date.now() - fetchStart;
-    console.log(
-      `[OpenRouter][${new Date().toISOString()}] 收到响应, 状态:`,
-      response.status,
-      '网络耗时:',
-      elapsed,
-      'ms, 总耗时:',
-      Date.now() - requestStart,
-      'ms'
-    );
+    logStructured('info', 'OpenRouter', '收到响应', {
+      status: response.status,
+      networkMs: elapsed,
+      totalMs: Date.now() - requestStart,
+    });
 
     if (!response.ok) {
       const errorBody = await response.text();
-      console.error(
-        `[OpenRouter][${new Date().toISOString()}] API 错误, 状态:`,
-        response.status,
-        '总耗时:',
-        Date.now() - requestStart,
-        'ms, 响应:',
-        errorBody
-      );
+      logStructured('error', 'OpenRouter', 'API 错误', {
+        status: response.status,
+        totalMs: Date.now() - requestStart,
+        errorPreview: errorBody.slice(0, 500),
+      });
       throw new Error(`OpenRouter API 错误 (${response.status}): ${errorBody}`);
     }
 
     const data = await response.json();
-    console.log(
-      `[OpenRouter][${new Date().toISOString()}] API 原始响应, 总耗时:`,
-      Date.now() - requestStart,
-      'ms, 内容:',
-      JSON.stringify(data, null, 2)
-    );
+
+    if (isDev) {
+      console.log(
+        `[OpenRouter][${new Date().toISOString()}] API 原始响应, 总耗时:`,
+        Date.now() - requestStart,
+        'ms, 内容:',
+        JSON.stringify(data, null, 2)
+      );
+    } else {
+      logStructured('info', 'OpenRouter', 'API 原始响应', {
+        totalMs: Date.now() - requestStart,
+        responseType: typeof data,
+      });
+    }
 
     const typedData = data as {
-      choices?: Array<{ 
-        message?: { 
+      choices?: Array<{
+        message?: {
           content?: string;
           reasoning_details?: Array<{ type?: string; text?: string }>;
-        } 
+        }
       }>;
       error?: { message?: string; code?: number };
     };
 
     // 检查是否有错误
     if (typedData.error) {
-      console.error(
-        `[OpenRouter][${new Date().toISOString()}] API 返回错误, 总耗时:`,
-        Date.now() - requestStart,
-        'ms, 错误:',
-        typedData.error
-      );
+      logStructured('error', 'OpenRouter', 'API 返回错误', {
+        totalMs: Date.now() - requestStart,
+        error: typedData.error,
+      });
       throw new Error(`OpenRouter 错误: ${typedData.error.message ?? '未知错误'}`);
     }
 
@@ -130,30 +167,22 @@ export async function callOpenRouter(
     const content = typedData.choices?.[0]?.message?.content;
 
     if (!content) {
-      console.error(
-        `[OpenRouter][${new Date().toISOString()}] 返回内容为空, 总耗时:`,
-        Date.now() - requestStart,
-        'ms, 完整响应:',
-        JSON.stringify(typedData, null, 2)
-      );
+      logStructured('error', 'OpenRouter', '返回内容为空', {
+        totalMs: Date.now() - requestStart,
+      });
       throw new Error('OpenRouter 返回内容为空');
     }
 
-    console.log(
-      `[OpenRouter][${new Date().toISOString()}] API 调用成功, 响应长度:`,
-      content.length,
-      '总耗时:',
-      Date.now() - requestStart,
-      'ms'
-    );
+    logStructured('info', 'OpenRouter', 'API 调用成功', {
+      contentLength: content.length,
+      totalMs: Date.now() - requestStart,
+    });
     return content;
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      console.error(
-        `[OpenRouter][${new Date().toISOString()}] 请求超时 (600s), 总耗时:`,
-        Date.now() - requestStart,
-        'ms'
-      );
+      logStructured('error', 'OpenRouter', '请求超时 (600s)', {
+        totalMs: Date.now() - requestStart,
+      });
       throw new Error('API 请求超时（10分钟），请稍后重试');
     }
     throw err;
@@ -186,13 +215,21 @@ export async function streamOpenRouter(
     ...(options.responseFormat && { response_format: options.responseFormat }),
   });
 
-  console.log(`[OpenRouter Stream][${new Date().toISOString()}] 开始流式调用, 模型:`, MODEL);
-  console.log(`[OpenRouter Stream][${new Date().toISOString()}] 请求体大小:`, requestBody.length, '字符');
+  logStructured('info', 'OpenRouter Stream', '开始流式调用', {
+    model: MODEL,
+    bodySize: requestBody.length,
+  });
+
+  if (isDev) {
+    console.log(`[OpenRouter Stream][${new Date().toISOString()}] 请求体大小:`, requestBody.length, '字符');
+  }
 
   // 设置 600 秒超时（10分钟）
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
-    console.log(`[OpenRouter Stream][${new Date().toISOString()}] 请求超时，中止连接`);
+    logStructured('info', 'OpenRouter Stream', '请求超时，中止连接', {
+      totalMs: Date.now() - requestStart,
+    });
     controller.abort();
   }, 600_000);
 
@@ -210,11 +247,10 @@ export async function streamOpenRouter(
 
   if (!response.ok) {
     const errorBody = await response.text();
-    console.error(
-      `[OpenRouter Stream][${new Date().toISOString()}] API 错误:`,
-      response.status,
-      errorBody
-    );
+    logStructured('error', 'OpenRouter Stream', 'API 错误', {
+      status: response.status,
+      errorPreview: errorBody.slice(0, 500),
+    });
     throw new Error(`OpenRouter API 错误 (${response.status}): ${errorBody}`);
   }
 
@@ -222,7 +258,9 @@ export async function streamOpenRouter(
     throw new Error('响应 body 为空');
   }
 
-  console.log(`[OpenRouter Stream][${new Date().toISOString()}] 开始接收流, 状态: ${response.status}`);
+  logStructured('info', 'OpenRouter Stream', '开始接收流', {
+    status: response.status,
+  });
 
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
@@ -239,21 +277,22 @@ export async function streamOpenRouter(
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        
-        console.log(`[OpenRouter Stream][${new Date().toISOString()}] 收到行:`, trimmed.substring(0, 100));
-        
+
+        if (isDev) {
+          console.log(`[OpenRouter Stream][${new Date().toISOString()}] 收到行:`, trimmed.substring(0, 100));
+        }
+
         if (!trimmed.startsWith('data: ')) {
           continue;
         }
-        
+
         const data = trimmed.slice(6);
         if (data === '[DONE]') {
           chunkCount++;
-          console.log(
-            `[OpenRouter Stream][${new Date().toISOString()}] 流结束, 共 ${chunkCount} 个数据块, 总耗时:`,
-            Date.now() - requestStart,
-            'ms'
-          );
+          logStructured('info', 'OpenRouter Stream', '流结束', {
+            chunkCount,
+            totalMs: Date.now() - requestStart,
+          });
           clearTimeout(timeoutId);
           controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
           continue;
@@ -271,7 +310,9 @@ export async function streamOpenRouter(
           };
 
           if (parsed.error) {
-            console.error(`[OpenRouter Stream] 错误:`, parsed.error);
+            logStructured('error', 'OpenRouter Stream', '流错误', {
+              error: parsed.error,
+            });
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ error: parsed.error.message })}\n\n`)
             );
@@ -289,14 +330,19 @@ export async function streamOpenRouter(
             );
           }
         } catch (parseErr) {
-          console.error(`[OpenRouter Stream] 解析错误:`, parseErr, 'data:', data.substring(0, 200));
+          logStructured('error', 'OpenRouter Stream', '解析错误', {
+            error: String(parseErr),
+            dataPreview: data.substring(0, 200),
+          });
         }
       }
     },
     flush(controller) {
       clearTimeout(timeoutId);
       if (buffer.trim()) {
-        console.log(`[OpenRouter Stream][${new Date().toISOString()}] 剩余缓冲区:`, buffer.substring(0, 100));
+        logStructured('info', 'OpenRouter Stream', '剩余缓冲区', {
+          bufferPreview: buffer.substring(0, 100),
+        });
       }
     },
   });
@@ -323,12 +369,26 @@ export const ANALYZE_SYSTEM_PROMPT = `你是一位精通 GeoGebra 的数学教�
   "geogebra": "<多行GeoGebra命令，用\\n分隔>",
   "conditions": ["从题目提取的已知条件1", "已知条件2"],
   "goal": "题目要求的目标",
-  "solution": ["步骤1", "步骤2"]
+  "solution": [
+    {
+      "text": "步骤1描述",
+      "commandIndices": [0, 1],
+      "explanation": "该步骤的几何原理说明"
+    },
+    {
+      "text": "步骤2描述",
+      "commandIndices": [2],
+      "explanation": "该步骤的几何原理说明"
+    }
+  ]
 }
 
 【solution 字段要求】
 1. 提供 2-5 条简洁步骤，聚焦思路，不写冗长推导
-2. 如题目信息不足，可返回空数组 []
+2. 每个步骤必须包含 commandIndices 字段，表示该步骤对应哪些 GeoGebra 命令索引（0-based）
+3. 每个步骤必须包含 explanation 字段，说明该步骤的几何原理和数学依据
+4. 如题目信息不足，可返回空数组 []
+5. commandIndices 必须准确对应 geogebra 字段中的命令行索引
 
 【命令顺序】
 1. 先定义所有点（A = (0, 0)）
@@ -500,6 +560,52 @@ export const FIX_COMMANDS_SYSTEM_PROMPT = `你是一位精通 GeoGebra 的数学
 - 函数名区分大小写`;
 
 /**
+ * 输入清理函数：防止 Prompt 注入
+ * - 过滤控制字符和危险特殊字符
+ * - 限制最大长度
+ * - 去除零宽字符
+ */
+export function sanitizeInput(input: string, maxLength = 5000): string {
+  if (!input || typeof input !== 'string') {
+    return '';
+  }
+
+  // 截断超长输入
+  let cleaned = input.length > maxLength ? input.slice(0, maxLength) : input;
+
+  // 去除零宽字符（常用于绕过过滤）
+  cleaned = cleaned.replace(
+    /[\u200B-\u200F\uFEFF\u2060-\u206F]/g,
+    ''
+  );
+
+  // 过滤控制字符（保留换行和制表符）
+  cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+
+  // 过滤危险的 prompt 注入标记（不区分大小写）
+  const dangerousPatterns = [
+    /ignore previous instructions/gi,
+    /disregard (all )?previous (instructions|prompts)/gi,
+    /you are now/gi,
+    /system prompt/gi,
+    /new instruction/gi,
+    /\{\{.*?\}\}/g, // 模板注入
+    /<%.*?%>/g, // 模板注入
+    /<\?php/gi,
+    /<script/gi,
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    cleaned = cleaned.replace(pattern, '[FILTERED]');
+  }
+
+  // 限制连续特殊字符（防止编码绕过）
+  cleaned = cleaned.replace(/[!@#$%^&*+]{5,}/g, (match) => match.slice(0, 4));
+
+  return cleaned.trim();
+}
+
+/**
  * 解析 VLM 返回的 JSON（容忍 markdown 代码块和 thinking 标签）
  */
 export function parseVlmJson<T>(content: string): T {
@@ -516,7 +622,9 @@ export function parseVlmJson<T>(content: string): T {
     // 提取结束标签后的内容
     const tagLength = cleaned.indexOf('</thinking>') === thinkEndIndex ? 11 : 8;
     cleaned = cleaned.slice(thinkEndIndex + tagLength).trim();
-    console.log('[parseVlmJson] 提取 think 标签后内容:', cleaned.substring(0, 200));
+    if (isDev) {
+      console.log('[parseVlmJson] 提取 think 标签后内容:', cleaned.substring(0, 200));
+    }
   }
 
   // 去除可能的 markdown 代码块
@@ -532,7 +640,9 @@ export function parseVlmJson<T>(content: string): T {
     const jsonEnd = cleaned.lastIndexOf('}');
     if (jsonStart >= 0 && jsonEnd > jsonStart) {
       cleaned = cleaned.slice(jsonStart, jsonEnd + 1);
-      console.log('[parseVlmJson] 提取 JSON 部分:', cleaned.substring(0, 200));
+      if (isDev) {
+        console.log('[parseVlmJson] 提取 JSON 部分:', cleaned.substring(0, 200));
+      }
     }
   }
 

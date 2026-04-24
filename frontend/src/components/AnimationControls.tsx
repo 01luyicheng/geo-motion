@@ -1,6 +1,6 @@
 'use client';
 
-import { Play, Pause, RotateCcw, SkipForward, SkipBack } from 'lucide-react';
+import { Play, Pause, RotateCcw, SkipForward, SkipBack, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AnimationState } from '@/types';
 
@@ -57,8 +57,8 @@ export function AnimationControls({
       </div>
 
       {/* 控制按钮 */}
-      <div className="flex items-center justify-center gap-2">
-        {/* 上一步 */}
+      <div className="flex items-center justify-center gap-2 flex-wrap">
+        {/* 单步后退（更精细的控制） */}
         <button
           type="button"
           onClick={() => onStep(-1)}
@@ -66,6 +66,18 @@ export function AnimationControls({
           className="rounded-md p-2 hover:bg-muted disabled:opacity-40 transition-colors"
           title="后退一步"
           aria-label="后退一步"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+
+        {/* 跳转到开头 */}
+        <button
+          type="button"
+          onClick={() => onStep(-current)}
+          disabled={current <= 0}
+          className="rounded-md p-2 hover:bg-muted disabled:opacity-40 transition-colors"
+          title="跳转到开头"
+          aria-label="跳转到开头"
         >
           <SkipBack className="h-4 w-4" />
         </button>
@@ -105,7 +117,7 @@ export function AnimationControls({
           )}
         </button>
 
-        {/* 下一步 */}
+        {/* 单步前进（更精细的控制） */}
         <button
           type="button"
           onClick={() => onStep(1)}
@@ -113,6 +125,18 @@ export function AnimationControls({
           className="rounded-md p-2 hover:bg-muted disabled:opacity-40 transition-colors"
           title="前进一步"
           aria-label="前进一步"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+
+        {/* 跳转到结尾 */}
+        <button
+          type="button"
+          onClick={() => onStep(total - 1 - current)}
+          disabled={current >= total - 1}
+          className="rounded-md p-2 hover:bg-muted disabled:opacity-40 transition-colors"
+          title="跳转到结尾"
+          aria-label="跳转到结尾"
         >
           <SkipForward className="h-4 w-4" />
         </button>

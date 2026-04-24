@@ -16,13 +16,16 @@ import {
   Share2,
   RefreshCw,
   AlertCircle,
+  GraduationCap,
+  Lightbulb,
+  X,
 } from 'lucide-react';
 import { GeoGebraViewer, type CommandExecutionResult } from '@/components/GeoGebraViewer';
 import { AnimationControls } from '@/components/AnimationControls';
 import { getStoredResult, setStoredResult } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { useAnimation } from '@/hooks/useAnimation';
-import type { AnalysisResult } from '@/types';
+import type { AnalysisResult, Step } from '@/types';
 
 // ─────────────────────────────────────────────────────────────────
 
@@ -54,6 +57,12 @@ function AnalyzeContent({ id }: { id: string }) {
   // 解题步骤展开
   const [solutionExpanded, setSolutionExpanded] = useState(true);
 
+  // 学习模式状态
+  const [studyMode, setStudyMode] = useState(false);
+  const [highlightedStepIndex, setHighlightedStepIndex] = useState<number | null>(null);
+  const [highlightedCommandIndex, setHighlightedCommandIndex] = useState<number | null>(null);
+  const [selectedStepExplanation, setSelectedStepExplanation] = useState<string | null>(null);
+
   // 修复相关状态
   const [isFixing, setIsFixing] = useState(false);
   const [fixError, setFixError] = useState<string | null>(null);
@@ -64,19 +73,108 @@ function AnalyzeContent({ id }: { id: string }) {
   // 使用 ref 进行同步检查，避免竞态条件
   const isFixingRef = useRef(false);
 
-  // 加载结果
+  // 加载结果：优先从服务端获取，fallback 到 localStorage
   useEffect(() => {
-    const stored = getStoredResult<AnalysisResult>(`analysis:${id}`);
-    if (stored) {
-      setResult(stored);
-    } else {
-      setNotFound(true);
+    let cancelled = false;
+
+    async function loadResult() {
+      // 1. 优先从服务端获取
+      try {
+        const res = await fetch(`/api/result/${id}`);
+        if (res.ok) {
+          const data = (await res.json()) as {
+            success: boolean;
+            data?: AnalysisResult;
+          };
+          if (data.success && data.data) {
+            if (!cancelled) {
+              setResult(data.data);
+              // 同步到 localStorage，提升后续访问速度
+              setStoredResult(`analysis:${id}`, data.data);
+            }
+            return;
+          }
+        }
+      } catch {
+        console.warn('[analyze] 服务端获取失败，尝试 localStorage');
+      }
+
+      // 2. Fallback 到 localStorage
+      const stored = getStoredResult<AnalysisResult>(`analysis:${id}`);
+      if (!cancelled) {
+        if (stored) {
+          setResult(stored);
+        } else {
+          setNotFound(true);
+        }
+      }
     }
+
+    void loadResult();
+
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const commandLines = result
     ? result.geogebra.split('\n').filter((l) => l.trim())
     : [];
+
+  // 解析步骤数据（兼容旧数据字符串数组和新数据 Step 数组）
+  const parsedSteps: Step[] = result
+    ? result.solution.map((s) => {
+        if (typeof s === 'string') {
+          return { text: s, commandIndices: [] };
+        }
+        // 运行时验证 Step 结构
+        if (
+          s &&
+          typeof s === 'object' &&
+          'text' in s &&
+          typeof (s as Record<string, unknown>).text === 'string' &&
+          'commandIndices' in s &&
+          Array.isArray((s as Record<string, unknown>).commandIndices)
+        ) {
+          return s as Step;
+        }
+        // 不符合 Step 结构时回退到字符串处理
+        return { text: String(s), commandIndices: [] };
+      })
+    : [];
+
+  // 学习模式：根据高亮的命令找到对应的步骤
+  const getStepIndicesByCommandIndex = useCallback((cmdIdx: number): number[] => {
+    return parsedSteps
+      .map((step, idx) => ({ step, idx }))
+      .filter(({ step }) => step.commandIndices.includes(cmdIdx))
+      .map(({ idx }) => idx);
+  }, [parsedSteps]);
+
+  // 学习模式：根据高亮的步骤找到对应的命令
+  const getCommandIndicesByStepIndex = useCallback((stepIdx: number): number[] => {
+    return parsedSteps[stepIdx]?.commandIndices ?? [];
+  }, [parsedSteps]);
+
+  // 点击步骤时高亮对应命令
+  const handleStepClick = useCallback((stepIdx: number) => {
+    if (!studyMode) return;
+    setHighlightedStepIndex(stepIdx);
+    const cmdIndices = getCommandIndicesByStepIndex(stepIdx);
+    if (cmdIndices.length > 0) {
+      setHighlightedCommandIndex(cmdIndices[0]);
+    }
+  }, [studyMode, getCommandIndicesByStepIndex]);
+
+  // 点击命令时高亮对应步骤
+  const handleCommandClick = useCallback((cmdIdx: number) => {
+    if (!studyMode) return;
+    setHighlightedCommandIndex(cmdIdx);
+    const stepIndices = getStepIndicesByCommandIndex(cmdIdx);
+    if (stepIndices.length > 0) {
+      setHighlightedStepIndex(stepIndices[0]);
+    }
+  }, [studyMode, getStepIndicesByCommandIndex]);
 
   // 动画控制（已提取到 useAnimation hook）
   const {
@@ -304,23 +402,46 @@ function AnalyzeContent({ id }: { id: string }) {
             </h1>
           </div>
 
+          {/* 学习模式切换按钮 */}
+          {parsedSteps.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setStudyMode((v) => !v);
+                setHighlightedStepIndex(null);
+                setHighlightedCommandIndex(null);
+                setSelectedStepExplanation(null);
+              }}
+              className={cn(
+                "group flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all",
+                studyMode
+                  ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
+              )}
+              title={studyMode ? '退出学习模式' : '进入学习模式'}
+            >
+              <GraduationCap className="h-4 w-4" />
+              <span className="hidden sm:inline">{studyMode ? '学习模式' : '学习模式'}</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleShare}
             className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-all"
-            title="复制链接（仅当前浏览器可打开）"
+            title="复制分享链接"
           >
             {urlCopied ? (
               <><Check className="h-4 w-4 text-green-600" /> <span className="hidden sm:inline text-green-600">已复制</span></>
             ) : (
-              <><Share2 className="h-4 w-4 transition-transform group-hover:scale-110" /> <span className="hidden sm:inline">复制本机链接</span></>
+              <><Share2 className="h-4 w-4 transition-transform group-hover:scale-110" /> <span className="hidden sm:inline">分享链接</span></>
             )}
           </button>
         </div>
 
         <div className="pb-3 text-center">
-          <p className="text-xs text-amber-700/90">
-            提示：分析结果保存在当前浏览器本地，复制的链接仅在本设备有效。
+          <p className="text-xs text-muted-foreground">
+            提示：分享链接已支持跨设备访问，结果将在服务端保留 7 天。
           </p>
         </div>
       </div>
@@ -550,9 +671,44 @@ function AnalyzeContent({ id }: { id: string }) {
                         )}
                       </button>
                     </div>
-                    <pre className="code-block max-h-96 overflow-auto whitespace-pre-wrap break-all p-4 text-xs leading-relaxed text-muted-foreground bg-gradient-to-br from-muted/50 to-muted/30">
-                      {result.geogebra}
-                    </pre>
+                    <div className="code-block max-h-96 overflow-auto p-4 text-xs leading-relaxed bg-gradient-to-br from-muted/50 to-muted/30">
+                      {commandLines.map((cmd, idx) => {
+                        const isHighlighted = studyMode && highlightedCommandIndex === idx;
+                        const relatedSteps = studyMode ? getStepIndicesByCommandIndex(idx) : [];
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => handleCommandClick(idx)}
+                            className={cn(
+                              "flex items-start gap-2 py-1 px-1.5 rounded cursor-pointer transition-all",
+                              isHighlighted
+                                ? "bg-amber-100 border border-amber-300"
+                                : relatedSteps.length > 0
+                                  ? "hover:bg-muted/60"
+                                  : ""
+                            )}
+                          >
+                            <span className={cn(
+                              "shrink-0 w-6 text-right tabular-nums select-none",
+                              isHighlighted ? "text-amber-700 font-bold" : "text-muted-foreground/50"
+                            )}>
+                              {idx + 1}
+                            </span>
+                            <span className={cn(
+                              "break-all",
+                              isHighlighted ? "text-amber-900 font-medium" : "text-muted-foreground"
+                            )}>
+                              {cmd}
+                            </span>
+                            {studyMode && relatedSteps.length > 0 && (
+                              <span className="shrink-0 ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                                步骤 {relatedSteps.map(s => s + 1).join(',')}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 rounded-xl border border-blue-500/20 bg-blue-500/5 p-3">
                     <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-500/20 text-xs">💡</div>
@@ -625,7 +781,7 @@ function AnalyzeContent({ id }: { id: string }) {
           </div>
 
           {/* 解题步骤（仅分析模式有） */}
-          {result.solution && result.solution.length > 0 && (
+          {parsedSteps.length > 0 && (
             <div className="relative overflow-hidden rounded-3xl border bg-card shadow-xl shadow-primary/5">
               <button
                 type="button"
@@ -638,7 +794,7 @@ function AnalyzeContent({ id }: { id: string }) {
                   </div>
                   <div className="text-left">
                     <p>解题思路</p>
-                    <p className="text-xs text-muted-foreground font-normal">{result.solution.length} 个步骤</p>
+                    <p className="text-xs text-muted-foreground font-normal">{parsedSteps.length} 个步骤</p>
                   </div>
                 </span>
                 <div className={cn(
@@ -650,24 +806,99 @@ function AnalyzeContent({ id }: { id: string }) {
               </button>
               {solutionExpanded && (
                 <div className="border-t px-5 py-4 space-y-2">
-                  {result.solution.map((step, i) => (
-                    <div
-                      key={i}
-                      className="group flex items-start gap-3 rounded-xl border border-green-500/10 bg-green-500/5 p-3 transition-all hover:border-green-500/30 hover:shadow-md hover:shadow-green-500/10"
-                    >
-                      <span
+                  {parsedSteps.map((step, i) => {
+                    const isHighlighted = studyMode && highlightedStepIndex === i;
+                    const hasCommands = step.commandIndices.length > 0;
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => handleStepClick(i)}
                         className={cn(
-                          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white transition-transform group-hover:scale-110',
-                          'bg-gradient-to-br from-green-500 to-green-600 shadow-sm'
+                          "group flex flex-col gap-2 rounded-xl border p-3 transition-all",
+                          isHighlighted
+                            ? "border-amber-400 bg-amber-50 shadow-md shadow-amber-500/10"
+                            : "border-green-500/10 bg-green-500/5 hover:border-green-500/30 hover:shadow-md hover:shadow-green-500/10",
+                          studyMode && hasCommands ? "cursor-pointer" : ""
                         )}
                       >
-                        {i + 1}
-                      </span>
-                      <span className="text-sm leading-relaxed">{step}</span>
-                    </div>
-                  ))}
+                        <div className="flex items-start gap-3">
+                          <span
+                            className={cn(
+                              'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white transition-transform group-hover:scale-110',
+                              isHighlighted
+                                ? 'bg-gradient-to-br from-amber-500 to-amber-600 shadow-sm'
+                                : 'bg-gradient-to-br from-green-500 to-green-600 shadow-sm'
+                            )}
+                          >
+                            {i + 1}
+                          </span>
+                          <span className="text-sm leading-relaxed">{step.text}</span>
+                        </div>
+                        {/* 学习模式：显示关联命令 */}
+                        {studyMode && hasCommands && (
+                          <div className="flex flex-wrap gap-1 ml-10">
+                            {step.commandIndices.map((cmdIdx) => (
+                              <span
+                                key={cmdIdx}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCommandClick(cmdIdx);
+                                }}
+                                className={cn(
+                                  "text-[10px] px-2 py-0.5 rounded-full border cursor-pointer transition-all",
+                                  highlightedCommandIndex === cmdIdx
+                                    ? "bg-amber-100 border-amber-300 text-amber-800"
+                                    : "bg-muted border-muted-foreground/20 text-muted-foreground hover:bg-amber-50 hover:border-amber-200"
+                                )}
+                              >
+                                命令 {cmdIdx + 1}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {/* 单步解释按钮 */}
+                        {studyMode && step.explanation && (
+                          <div className="ml-10">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedStepExplanation(step.explanation ?? null);
+                              }}
+                              className="flex items-center gap-1 text-xs text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg px-2.5 py-1 transition-all"
+                            >
+                              <Lightbulb className="h-3 w-3" />
+                              查看原理
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* 单步解释弹窗 */}
+          {selectedStepExplanation && (
+            <div className="relative overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-amber-100/50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2">
+                  <Lightbulb className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800 mb-1">几何原理</p>
+                    <p className="text-sm text-amber-900 leading-relaxed">{selectedStepExplanation}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedStepExplanation(null)}
+                  className="shrink-0 rounded-lg p-1 hover:bg-amber-200/50 transition-colors"
+                >
+                  <X className="h-4 w-4 text-amber-700" />
+                </button>
+              </div>
             </div>
           )}
 

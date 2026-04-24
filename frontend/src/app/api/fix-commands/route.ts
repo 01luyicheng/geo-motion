@@ -4,28 +4,12 @@ import {
   FIX_COMMANDS_SYSTEM_PROMPT,
   parseVlmJson,
   type OpenRouterMessage,
+  sanitizeInput,
 } from '@/lib/openrouter';
+import { fixCommandsRequestSchema, safeParseJson } from '@/lib/validation';
 
 // 允许路由最多执行 300 秒
 export const maxDuration = 300;
-
-/** 修复请求体 */
-interface FixCommandsRequest {
-  /** 原始 GeoGebra 命令 */
-  originalCommands: string;
-  /** 执行失败的命令及错误信息 */
-  errors: Array<{
-    command: string;
-    error: string;
-    index: number;
-  }>;
-  /** 题目条件（可选，用于上下文） */
-  conditions?: string[];
-  /** 求解目标（可选，用于上下文） */
-  goal?: string;
-  /** 重试次数 */
-  retryCount?: number;
-}
 
 /** 修复响应 */
 interface FixCommandsResponse {
@@ -39,28 +23,19 @@ export async function POST(req: NextRequest) {
   const requestStart = Date.now();
 
   try {
-    const body = (await req.json()) as FixCommandsRequest;
-
-    // 验证请求参数
-    if (!body.originalCommands) {
+    // 使用 zod 验证请求体
+    const parseResult = await safeParseJson(req, fixCommandsRequestSchema);
+    if (!parseResult.success) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: { code: 'INVALID_REQUEST', message: '未提供原始命令' },
+          error: parseResult.error,
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    if (!body.errors || body.errors.length === 0) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: { code: 'INVALID_REQUEST', message: '未提供错误信息' },
-        }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
+    const body = parseResult.data;
 
     const retryCount = body.retryCount ?? 0;
     const maxRetries = 3;
@@ -78,34 +53,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 清理输入，防止 prompt 注入
+    const originalCommands = sanitizeInput(body.originalCommands);
+    const goal = body.goal ? sanitizeInput(body.goal) : undefined;
+    const conditions = body.conditions?.map((c) => sanitizeInput(c));
+
     // 构建错误信息文本
     const errorDetails = body.errors
-      .map((e, i) => `${i + 1}. 命令 "${e.command}" (第${e.index + 1}行): ${e.error}`)
+      .map((e, i) => `${i + 1}. 命令 "${sanitizeInput(e.command)}" (第${e.index + 1}行): ${sanitizeInput(e.error)}`)
       .join('\n');
 
     // 构建用户提示词
-    let userPrompt = `以下 GeoGebra 命令执行时出现错误，请修复：
-
-【原始命令】
-${body.originalCommands}
-
-【错误信息】
-${errorDetails}
-
-【修复要求】
-1. 分析每条失败命令的原因（语法错误、对象不存在、参数错误等）
-2. 修复所有失败的命令，保持其他正确命令不变
-3. 确保修复后的命令能正确创建几何图形
-4. 返回完整的修复后命令（不只是修复的部分）`;
+    let userPrompt = `以下 GeoGebra 命令执行时出现错误，请修复：\n\n【原始命令】\n${originalCommands}\n\n【错误信息】\n${errorDetails}\n\n【修复要求】\n1. 分析每条失败命令的原因（语法错误、对象不存在、参数错误等）\n2. 修复所有失败的命令，保持其他正确命令不变\n3. 确保修复后的命令能正确创建几何图形\n4. 返回完整的修复后命令（不只是修复的部分）`;
 
     // 如果有题目条件，添加到提示词中
-    if (body.conditions && body.conditions.length > 0) {
-      userPrompt += `\n\n【题目条件】\n${body.conditions.join('\n')}`;
+    if (conditions && conditions.length > 0) {
+      userPrompt += `\n\n【题目条件】\n${conditions.join('\n')}`;
     }
 
     // 如果有求解目标，添加到提示词中
-    if (body.goal) {
-      userPrompt += `\n\n【求解目标】\n${body.goal}`;
+    if (goal) {
+      userPrompt += `\n\n【求解目标】\n${goal}`;
     }
 
     // 添加重试提示

@@ -1,10 +1,17 @@
+// 解题步骤类型（支持学习模式联动）
+export interface Step {
+  text: string;            // 步骤描述
+  commandIndices: number[]; // 关联的命令索引（0-based）
+  explanation?: string;    // 几何原理解释（可选，用于单步解释）
+}
+
 // 分析结果类型
 export interface AnalysisResult {
   id: string;
   geogebra: string;        // GeoGebra 命令脚本（多行）
   conditions: string[];    // 已知条件
   goal: string;            // 求解目标
-  solution: string[];      // 解题步骤
+  solution: string[] | Step[]; // 解题步骤（兼容旧数据字符串数组和新数据 Step 数组）
   createdAt: string;       // ISO 时间
 }
 
