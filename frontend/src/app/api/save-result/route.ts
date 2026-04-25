@@ -54,7 +54,16 @@ export async function POST(req: NextRequest) {
     }
     const entry = createStoredEntry(body.result);
 
-    store.set(id, entry);
+    const saved = store.set(id, entry);
+    if (!saved) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: { code: 'CAPACITY_EXCEEDED', message: '存储容量已满，请稍后重试' },
+        }),
+        { status: 503, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (isDev) {
       console.log(
