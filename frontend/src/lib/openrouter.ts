@@ -131,11 +131,14 @@ export async function callOpenRouter(
     const data = await response.json();
 
     if (isDev) {
+      const dataStr = JSON.stringify(data);
       console.log(
         `[OpenRouter][${new Date().toISOString()}] API 原始响应, 总耗时:`,
         Date.now() - requestStart,
-        'ms, 内容:',
-        JSON.stringify(data, null, 2)
+        'ms, 状态: OK, 内容长度:',
+        dataStr.length,
+        ', 内容前100字符:',
+        dataStr.substring(0, 100)
       );
     } else {
       logStructured('info', 'OpenRouter', 'API 原始响应', {

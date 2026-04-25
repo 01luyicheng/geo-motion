@@ -171,5 +171,5 @@ function setSecurityHeaders(response: NextResponse) {
  * 匹配所有 API 路由和页面路由
  */
 export const config = {
-  matcher: ['/api/:path*', '/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/api/:path*', '/((?!_next/static|_next/image|_next/data|favicon.ico).*)'],
 };

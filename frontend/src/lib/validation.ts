@@ -2,8 +2,9 @@ import { z } from 'zod';
 
 // ── 通用验证规则 ───────────────────────────────────────────────
 
-/** data:image/ 开头的 base64 图片 */
-const dataUriRegex = /^data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$/;
+/** data:image/ 开头的 base64 或 URL 编码图片 */
+const dataUriRegex =
+  /^data:image\/(png|jpeg|jpg|gif|webp);(base64,[A-Za-z0-9+/=]+|charset=[^,]+,.+)$/;
 
 export const imageDataUriSchema = z
   .string()
@@ -12,7 +13,7 @@ export const imageDataUriSchema = z
     message: '图片格式错误，需为 data URI',
   })
   .refine((val) => dataUriRegex.test(val), {
-    message: '图片格式无效，需为 base64 data URI',
+    message: '图片格式无效，需为 base64 或 URL 编码的 data URI',
   })
   .refine((val) => val.length <= 13_000_000, {
     message: '图片大小超过 10MB 限制',
