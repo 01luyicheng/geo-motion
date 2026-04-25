@@ -2,19 +2,6 @@
 
 ## 高优先级
 
-### H2. 分享链接功能受限于本地存储
-- **文件**: `frontend/src/app/analyze/[id]/page.tsx`
-- **问题描述**: 分享按钮复制当前 URL，但分析结果仅存储在本地 `localStorage`，无法实现跨设备分享
-- **影响**: 教师无法将链接发给学生跨设备使用，分享能力受限
-- **建议**: 实现服务端持久化实现真正的跨设备分享
-- **交叉审查发现**:
-  - **内存泄漏风险**: `save-result/route.ts` 使用 `Map` 做内存存储，无最大容量限制，恶意用户可持续 POST 大量数据导致内存耗尽（DoS 攻击）
-  - **数据丢失风险**: 内存存储在服务器重启/部署后全部丢失，生产环境不可用
-  - **无数据大小限制**: `saveResultRequestSchema` 未限制 `result` 对象的大小，单条记录可能非常大
-  - **ID 冲突风险**: `generateId()` 使用 `crypto.randomUUID()`，虽然冲突概率极低，但无唯一性校验
-  - **测试依赖内部实现**: `result/[id]/route.test.ts` 直接导入 `memoryStore` 进行测试，破坏了模块封装性
-  - **清理机制问题**: `setInterval` 每 10 分钟清理过期数据，但 Next.js 在 serverless 环境下可能每次请求都创建新的 interval，导致内存泄漏（虽然当前非 serverless 部署，但架构上存在问题）
-
 ### H3. 解题步骤质量与教学联动不足
 - **文件**: `frontend/src/lib/openrouter.ts`, `frontend/src/app/analyze/[id]/page.tsx`
 - **问题描述**: 步骤文本和动画命令执行是两条平行信息流，缺少逐步联动与可解释性
