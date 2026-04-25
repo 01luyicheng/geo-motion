@@ -251,6 +251,7 @@ function AnalyzeContent({ id }: { id: string }) {
           conditions: result.conditions,
           goal: result.goal,
           retryCount: fixRetryCount,
+          timestamp: Date.now(),
         }),
       });
 

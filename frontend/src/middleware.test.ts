@@ -79,12 +79,21 @@ describe('middleware', () => {
       expect(res.headers.get('Access-Control-Max-Age')).toBe('86400');
     });
 
-    it('无 origin 时设置 Access-Control-Allow-Origin 为第一个允许的来源', () => {
+    it('API 路由无 origin 时返回 403', () => {
+      const req = createRequest({
+        url: 'http://localhost:3000/api/analyze',
+      });
+      const res = middleware(req);
+      expect(res.status).toBe(403);
+      expect(res.headers.get('Content-Type')).toBe('application/json');
+    });
+
+    it('非 API 路由无 origin 时设置 Access-Control-Allow-Origin 为第一个允许的来源', () => {
       const req = createRequest({
         url: 'http://localhost:3000/',
       });
       const res = middleware(req);
-      // 无 origin 时，isAllowedOrigin=false，使用 ALLOWED_ORIGINS[0]
+      // 非 API 路由：无 origin 时，isAllowedOrigin=false，使用 ALLOWED_ORIGINS[0]
       expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:3000');
     });
   });

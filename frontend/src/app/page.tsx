@@ -132,7 +132,7 @@ function HomeContent() {
         try {
           const result = await streamRequest(
             '/api/analyze',
-            { image, retryCount: currentRetry, previousError: latestValidationError || undefined },
+            { image, retryCount: currentRetry, previousError: latestValidationError || undefined, timestamp: Date.now() },
             appendChunk,
             { signal: currentController.signal }
           );
@@ -271,7 +271,7 @@ function HomeContent() {
         try {
           const result = await streamRequest(
             '/api/generate-graphic',
-            { text, sketch: sketch ?? undefined, retryCount: currentRetry, previousError: latestValidationError || undefined },
+            { text, sketch: sketch ?? undefined, retryCount: currentRetry, previousError: latestValidationError || undefined, timestamp: Date.now() },
             appendChunk,
             { signal: currentController.signal }
           );

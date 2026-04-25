@@ -35,6 +35,7 @@ export const analyzeRequestSchema = z.object({
   image: imageDataUriSchema,
   retryCount: z.number().int().min(0).max(5).optional(),
   previousError: z.string().max(2000).optional(),
+  timestamp: z.number().int().optional(),
 });
 
 export type AnalyzeRequestInput = z.infer<typeof analyzeRequestSchema>;
@@ -45,6 +46,7 @@ export const generateGraphicRequestSchema = z.object({
   sketch: imageDataUriSchema.optional(),
   retryCount: z.number().int().min(0).max(5).optional(),
   previousError: z.string().max(2000).optional(),
+  timestamp: z.number().int().optional(),
 });
 
 export type GenerateGraphicRequestInput = z.infer<typeof generateGraphicRequestSchema>;
@@ -64,6 +66,7 @@ export const fixCommandsRequestSchema = z.object({
   conditions: z.array(z.string().min(1)).max(50).optional(),
   goal: z.string().max(2000).optional(),
   retryCount: z.number().int().min(0).max(5).optional(),
+  timestamp: z.number().int().optional(),
 });
 
 export type FixCommandsRequestInput = z.infer<typeof fixCommandsRequestSchema>;
@@ -138,6 +141,37 @@ export const fixCommandsOutputSchema = z.object({
 });
 
 export type FixCommandsOutput = z.infer<typeof fixCommandsOutputSchema>;
+
+// ── 重放攻击防护 ─────────────────────────────────────────────
+
+/** 时间戳最大允许偏差：5 分钟（300000ms） */
+export const TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * 校验请求时间戳，防止重放攻击
+ * - 缺少 timestamp：允许通过（向后兼容）
+ * - timestamp 过期：返回 400
+ */
+export function validateTimestamp(timestamp: number | undefined): {
+  valid: boolean;
+  error?: { code: string; message: string };
+} {
+  if (timestamp === undefined) {
+    return { valid: true };
+  }
+  const now = Date.now();
+  const diff = now - timestamp;
+  if (diff > TIMESTAMP_TOLERANCE_MS || diff < -TIMESTAMP_TOLERANCE_MS) {
+    return {
+      valid: false,
+      error: {
+        code: 'TIMESTAMP_EXPIRED',
+        message: '请求时间戳已过期，请刷新页面后重试',
+      },
+    };
+  }
+  return { valid: true };
+}
 
 // ── 辅助函数 ──────────────────────────────────────────────────
 

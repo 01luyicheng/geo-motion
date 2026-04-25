@@ -5,7 +5,7 @@ import {
   type OpenRouterMessage,
   sanitizeInput,
 } from '@/lib/openrouter';
-import { analyzeRequestSchema, safeParseJson } from '@/lib/validation';
+import { analyzeRequestSchema, safeParseJson, validateTimestamp } from '@/lib/validation';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -26,6 +26,15 @@ export async function POST(req: NextRequest) {
     }
 
     const body = parseResult.data;
+
+    // 校验时间戳，防止重放攻击
+    const timestampCheck = validateTimestamp(body.timestamp);
+    if (!timestampCheck.valid) {
+      return new Response(
+        JSON.stringify({ success: false, error: timestampCheck.error }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     // 清理输入，防止 prompt 注入
     const previousError = body.previousError ? sanitizeInput(body.previousError) : undefined;

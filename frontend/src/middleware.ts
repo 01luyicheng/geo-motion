@@ -58,8 +58,8 @@ export function middleware(request: NextRequest) {
 
   // ── 2. API 路由安全校验 ────────────────────────────────────
   if (request.nextUrl.pathname.startsWith('/api/')) {
-    // 拒绝非允许来源的请求（防范 CSRF）
-    if (!isAllowedOrigin && origin) {
+    // 拒绝非允许来源的请求（防范 CSRF），包括无 Origin 头的请求
+    if (!isAllowedOrigin) {
       return new NextResponse(
         JSON.stringify({
           success: false,
