@@ -100,19 +100,17 @@ describe('setStoredResult', () => {
     expect(localStorage.getItem('resKey')).toBe(JSON.stringify(data));
   });
 
-  it('存储满时静默失败并打印警告', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('存储满时静默失败', () => {
     const storeSpy = vi
       .spyOn(Storage.prototype, 'setItem')
       .mockImplementation(() => {
         throw new Error('QuotaExceededError');
       });
 
-    setStoredResult('key', { value: 1 });
-    expect(warnSpy).toHaveBeenCalled();
+    // 不应抛出异常
+    expect(() => setStoredResult('key', { value: 1 })).not.toThrow();
 
     storeSpy.mockRestore();
-    warnSpy.mockRestore();
   });
 });
 

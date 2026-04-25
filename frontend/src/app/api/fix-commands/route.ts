@@ -8,6 +8,8 @@ import {
 } from '@/lib/openrouter';
 import { fixCommandsRequestSchema, safeParseJson } from '@/lib/validation';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 // 允许路由最多执行 300 秒
 export const maxDuration = 300;
 
@@ -86,23 +88,27 @@ export async function POST(req: NextRequest) {
       { role: 'user', content: userPrompt },
     ];
 
-    console.log(
-      `[fix-commands][${new Date().toISOString()}] 开始修复命令, 失败命令数:`,
-      body.errors.length,
-      '重试次数:',
-      retryCount
-    );
+    if (isDev) {
+      console.log(
+        `[fix-commands][${new Date().toISOString()}] 开始修复命令, 失败命令数:`,
+        body.errors.length,
+        '重试次数:',
+        retryCount
+      );
+    }
 
     const response = await callOpenRouter(messages, {
       temperature: 0.1,
       maxTokens: 4096,
     });
 
-    console.log(
-      `[fix-commands][${new Date().toISOString()}] 收到修复响应, 耗时:`,
-      Date.now() - requestStart,
-      'ms'
-    );
+    if (isDev) {
+      console.log(
+        `[fix-commands][${new Date().toISOString()}] 收到修复响应, 耗时:`,
+        Date.now() - requestStart,
+        'ms'
+      );
+    }
 
     // 解析响应
     const parsed = parseVlmJson<{ geogebra: string }>(response);
@@ -123,11 +129,13 @@ export async function POST(req: NextRequest) {
       message: `成功修复 ${body.errors.length} 条命令`,
     };
 
-    console.log(
-      `[fix-commands][${new Date().toISOString()}] 修复完成, 总耗时:`,
-      Date.now() - requestStart,
-      'ms'
-    );
+    if (isDev) {
+      console.log(
+        `[fix-commands][${new Date().toISOString()}] 修复完成, 总耗时:`,
+        Date.now() - requestStart,
+        'ms'
+      );
+    }
 
     return new Response(JSON.stringify(result), {
       status: 200,

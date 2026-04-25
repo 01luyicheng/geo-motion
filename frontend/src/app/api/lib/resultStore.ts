@@ -3,6 +3,8 @@ import type { AnalysisResult } from '@/types';
 // 7 天过期时间（毫秒）
 const EXPIRE_MS = 7 * 24 * 60 * 60 * 1000;
 
+const isDev = process.env.NODE_ENV === 'development';
+
 // 最大存储容量
 const MAX_CAPACITY = 1000;
 
@@ -82,7 +84,7 @@ export function lazyCleanup(store: IResultStore): number {
         cleaned++;
       }
     }
-    if (cleaned > 0) {
+    if (cleaned > 0 && isDev) {
       console.log(`[resultStore] 全量清理 ${cleaned} 条过期数据，剩余 ${store.size} 条`);
     }
   }

@@ -8,6 +8,8 @@ import {
   checkStoreAvailability,
 } from '@/app/api/lib/resultStore';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 // 请求体大小限制：10MB
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
 
@@ -54,9 +56,11 @@ export async function POST(req: NextRequest) {
 
     store.set(id, entry);
 
-    console.log(
-      `[save-result] 已保存结果 id=${id}, 当前存储量=${store.size}`
-    );
+    if (isDev) {
+      console.log(
+        `[save-result] 已保存结果 id=${id}, 当前存储量=${store.size}`
+      );
+    }
 
     return new Response(
       JSON.stringify({

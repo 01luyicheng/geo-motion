@@ -46,6 +46,8 @@ const store = new Map<string, Map<string, RateLimitEntry>>();
 /** 上次清理时间 */
 let lastCleanup = Date.now();
 
+const isDev = process.env.NODE_ENV === 'development';
+
 /** 清理间隔（毫秒） */
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 分钟
 
@@ -184,7 +186,7 @@ export function cleanupExpiredEntries(): void {
 
   lastCleanup = now;
 
-  if (cleanedRoutes > 0 || cleanedIps > 0) {
+  if ((cleanedRoutes > 0 || cleanedIps > 0) && isDev) {
     console.log(
       `[ratelimit] 清理完成: ${cleanedRoutes} 条过期路由记录, ${cleanedIps} 个空 IP 条目, 剩余 ${store.size} 个 IP`
     );

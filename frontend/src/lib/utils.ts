@@ -44,8 +44,10 @@ export function setStoredResult<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (err) {
-    // QuotaExceededError：存储已满，静默失败并记录警告
-    console.warn('[utils] localStorage 写入失败（存储空间不足）:', key, err);
+    // QuotaExceededError：存储已满，静默失败并记录警告（仅开发环境）
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[utils] localStorage 写入失败（存储空间不足）:', key, err);
+    }
   }
 }
 

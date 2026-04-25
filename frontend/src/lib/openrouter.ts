@@ -28,6 +28,30 @@ export interface OpenRouterOptions {
 }
 
 const isDev = process.env.NODE_ENV === 'development';
+const debugEnabled = process.env.DEBUG === '1';
+
+/** 判断是否应该输出日志 */
+function shouldLog(level: 'info' | 'error'): boolean {
+  if (level === 'error') return true;
+  // info 级别仅在开发环境或 DEBUG=1 时输出
+  return isDev || debugEnabled;
+}
+
+/** 过滤敏感字段 */
+function filterSensitiveMeta(meta?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!meta) return undefined;
+  const sensitiveKeys = ['image', 'dataUri', 'base64'];
+  const filtered: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(meta)) {
+    const lowerKey = key.toLowerCase();
+    if (sensitiveKeys.some((sk) => lowerKey.includes(sk.toLowerCase()))) {
+      filtered[key] = '[REDACTED]';
+    } else {
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
 
 /** 结构化日志（生产环境使用，只记录元数据） */
 function logStructured(
@@ -36,12 +60,16 @@ function logStructured(
   message: string,
   meta?: Record<string, unknown>
 ) {
+  if (!shouldLog(level)) return;
+
+  const filteredMeta = filterSensitiveMeta(meta);
+
   if (isDev) {
     const ts = new Date().toISOString();
     if (level === 'error') {
-      console.error(`[${module}][${ts}] ${message}`, meta ? JSON.stringify(meta) : '');
+      console.error(`[${module}][${ts}] ${message}`, filteredMeta ? JSON.stringify(filteredMeta) : '');
     } else {
-      console.log(`[${module}][${ts}] ${message}`, meta ? JSON.stringify(meta) : '');
+      console.log(`[${module}][${ts}] ${message}`, filteredMeta ? JSON.stringify(filteredMeta) : '');
     }
   } else {
     // 生产环境：输出结构化 JSON 日志，供日志收集系统处理
@@ -50,7 +78,7 @@ function logStructured(
       module,
       time: new Date().toISOString(),
       message,
-      ...meta,
+      ...filteredMeta,
     });
     // eslint-disable-next-line no-console
     console.log(logLine);

@@ -7,6 +7,8 @@ import {
 } from '@/lib/openrouter';
 import { analyzeRequestSchema, safeParseJson } from '@/lib/validation';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 // 允许路由最多执行 300 秒（AI 响应可能较慢）
 export const maxDuration = 300;
 
@@ -58,11 +60,13 @@ export async function POST(req: NextRequest) {
       maxTokens: 4096,
     });
 
-    console.log(
-      `[analyze][${new Date().toISOString()}] 开始流式响应, 耗时:`,
-      Date.now() - requestStart,
-      'ms'
-    );
+    if (isDev) {
+      console.log(
+        `[analyze][${new Date().toISOString()}] 开始流式响应, 耗时:`,
+        Date.now() - requestStart,
+        'ms'
+      );
+    }
 
     // 返回 SSE 流
     return new Response(stream, {
