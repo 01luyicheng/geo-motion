@@ -2,18 +2,6 @@
 
 ## 高优先级
 
-### H3. 解题步骤质量与教学联动不足
-- **文件**: `frontend/src/lib/openrouter.ts`, `frontend/src/app/analyze/[id]/page.tsx`
-- **问题描述**: 步骤文本和动画命令执行是两条平行信息流，缺少逐步联动与可解释性
-- **影响**: 学生难以建立"命令 -> 几何结论 -> 解题步骤"的认知映射
-- **建议**: 建立学习模式联动（步骤高亮、命令定位、单步解释）
-- **交叉审查发现**:
-  - **类型兼容性隐患**: `AnalysisResult.solution` 定义为 `string[] | Step[]`，但 `page.tsx` 第 147 行解析时假设所有元素都可转换为 `Step`，如果 AI 返回混合类型（部分字符串部分对象），`typeof s === 'string'` 判断可能遗漏边缘情况
-  - **AI 提示词兼容性**: `ANALYZE_SYSTEM_PROMPT` 新增 `solution` 字段要求（`commandIndices` + `explanation`），但 `GENERATE_SYSTEM_PROMPT` 未更新，导致"草图转精确图"模式生成的结果缺少学习模式支持
-  - **旧数据兼容**: `useRealtimeGeoGebra.ts` 第 14 行 `solution: string[]` 类型定义与新的 `Step[]` 不兼容，实时预览功能可能无法正确处理新格式
-  - **学习模式 UI 问题**: `analyze/[id]/page.tsx` 第 412 行学习模式按钮文本始终显示"学习模式"，无法区分当前状态（进入/退出），用户体验不佳
-  - **命令索引越界风险**: `page.tsx` 第 143 行 `getCommandIndicesByStepIndex` 直接返回 `commandIndices`，未验证索引是否超出 `commandLines` 长度范围，AI 可能返回无效索引
-
 ### H4. API 安全加固
 - **文件**: `frontend/src/app/api/*`, `frontend/src/lib/openrouter.ts`
 - **问题描述**:
