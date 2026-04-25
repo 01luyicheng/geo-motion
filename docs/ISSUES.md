@@ -2,17 +2,6 @@
 
 ## 高优先级
 
-### H1. 测试覆盖率为零
-- **文件**: 全局
-- **问题描述**: 项目没有任何测试文件，存在较高的维护风险
-- **影响**: 每次修改都需要手动回归测试，重构困难
-- **建议**: 添加 API 路由单元测试 + 工具函数测试（推荐 Vitest + Testing Library）
-- **交叉审查发现**:
-  - `route.test.ts` 中模拟的 `safeParseJson` 与实际实现不完全一致（测试中手动实现验证逻辑，而非使用真实 zod schema），可能导致测试通过但实际行为不同
-  - `analyze/route.test.ts` 的 `afterEach` 仅调用 `vi.clearAllMocks()`，未清理 `resetStore()` 状态，测试间存在状态污染风险
-  - `utils.test.ts` 中 `sanitizeInput` 测试未覆盖 `null`/`undefined` 输入（虽然代码中有处理），测试不完整
-  - 测试覆盖率仍不足：缺少 `middleware.ts`、`GeoGebraViewer.tsx`、`useAnimation.ts` 等关键组件的测试
-
 ### H2. 分享链接功能受限于本地存储
 - **文件**: `frontend/src/app/analyze/[id]/page.tsx`
 - **问题描述**: 分享按钮复制当前 URL，但分析结果仅存储在本地 `localStorage`，无法实现跨设备分享
@@ -180,3 +169,134 @@
 |------|--------|------|
 | 历史记录查看 | 中 | 结果存于 localStorage 但无列表入口 |
 | PNG 导出 | 中 | SPEC.md 提到支持 PNG 导出，代码仅实现 SVG |
+
+---
+
+## 交叉审查专项报告（前5次提交）
+
+> 审查日期: 2026-04-25
+> 审查范围: H2、H4、H5、M2、M3 修复涉及的文件变更
+> 测试状态: 全部通过（72 tests passed）
+
+### 一、修复冲突与重复修改分析
+
+#### 1.1 `validation.ts` 被 3 次修复修改（H2、H4、M3）
+- **H2**: 新增 `saveResultRequestSchema`，限制 result 对象大小
+- **H4**: 新增 `imageDataUriSchema` 正则验证，增加输入清理
+- **M3**: 新增 `openRouterResponseSchema` / `openRouterStreamChunkSchema` zod 验证
+- **冲突评估**: 无直接代码冲突，但 `imageDataUriSchema` 的正则表达式存在兼容性问题（见下方）
+
+#### 1.2 `openrouter.ts` 被 3 次修复修改（H4、M2、M3）
+- **H4**: 新增 `sanitizeInput` 函数，防止 Prompt 注入
+- **M2**: 用 `logStructured` 替代 `console.log`，按环境控制日志输出
+- **M3**: 新增 `parseVlmJson` 函数，使用 zod 进行运行时验证
+- **冲突评估**: `logStructured` 的 `filterSensitiveMeta` 与 `sanitizeInput` 功能有重叠，但职责不同（一个过滤日志、一个过滤输入），无冲突
+
+#### 1.3 `resultStore.ts` 被 2 次修复修改（H2、M2）
+- **H2**: 新增内存存储实现、容量限制、过期清理
+- **M2**: 新增 `checkStoreAvailability`、`isVercelServerless` 等环境检测
+- **冲突评估**: 无冲突，M2 在 H2 基础上扩展
+
+### 二、新引入问题
+
+#### 2.1 类型错误
+- **[CRITICAL]** `page.tsx` 第 144 行：`parsed` 类型推断不完整
+  ```typescript
+  parsed = parseVlmJson(result.content, vlmOutputSchema);
+  ```
+  虽然使用了 zod 验证，但 `parsed.solution` 的类型为 `(string | Step)[]`，后续代码第 147 行直接调用 `.map()` 处理，运行时可能出错。
+
+- **[MEDIUM]** `useRealtimeGeoGebra.ts` 第 15 行：`solution: string[] | Step[]` 与类型定义 `Step[]` 不兼容
+  ```typescript
+  solution: string[] | Step[];
+  ```
+  这导致实时预览组件无法正确处理带 `explanation` 的新格式数据。
+
+#### 2.2 逻辑错误
+- **[HIGH]** `middleware.ts` 第 62 行：CORS 源检查允许空 origin
+  ```typescript
+  if (!isAllowedOrigin && origin) {
+  ```
+  这意味着 curl、Postman 等无 Origin 头的工具可以绕过 CSRF 防护直接调用 API。
+
+- **[HIGH]** `ratelimit.ts` 第 138 行：edge 模式下 `request.ip` 可能为 undefined
+  ```typescript
+  return (request as unknown as Record<string, string | undefined>).ip ?? 'unknown';
+  ```
+  如果返回 `'unknown'`，则所有无 IP 的请求共享同一个限流计数器，一个恶意用户即可耗尽所有无 IP 请求的配额。
+
+- **[MEDIUM]** `resultStore.ts` 第 36-38 行：容量检查在 `set` 时抛出异常
+  ```typescript
+  if (!this.store.has(id) && this.store.size >= MAX_CAPACITY) {
+    throw new Error('Storage capacity exceeded');
+  }
+  ```
+  但 `save-result/route.ts` 第 30-33 行已通过 `checkStoreAvailability()` 提前检查，此处重复检查且抛出未捕获的异常可能导致 500 错误而非预期的 503。
+
+- **[MEDIUM]** `openrouter.ts` 第 113 行：`reasoning: { effort: "none" }` 不是所有模型都支持的参数
+  如果用户通过环境变量切换到不支持此参数的模型，API 调用会失败。
+
+#### 2.3 性能问题
+- **[MEDIUM]** `page.tsx` 第 77-109 行：`useEffect` 中同步调用 `fetch`，在服务端渲染时可能造成瀑布请求
+- **[LOW]** `ratelimit.ts` 第 55-69 行：`setInterval` 在模块加载时自动启动，测试环境中即使未使用限流也会创建定时器
+
+### 三、遗漏的边界情况
+
+#### 3.1 输入验证边界
+- `imageDataUriSchema` 限制 13MB，但 `saveResultRequestSchema` 中 `result.geogebra` 限制 50KB，`result.conditions` 每项 500 字符，但未验证 `image` 字段在 `saveResult` 中不会出现（当前确实不会，但 schema 未显式排除）
+- `fixCommandsRequestSchema` 中 `errors` 数组的 `index` 字段未验证是否超出 `originalCommands` 的行数范围
+
+#### 3.2 存储边界
+- `resultStore.ts` 的 `lazyCleanup` 仅在 GET 时触发，如果某个结果 7 天内从未被访问，它会在内存中保留到下次 GET 触发清理，而非主动删除
+- `memoryStore` 的 `MAX_CAPACITY = 1000` 在 serverless 环境下每个实例独立计算，实际总容量 = 1000 * 实例数
+
+#### 3.3 流式处理边界
+- `stream.ts` 第 55-72 行：SSE 数据解析失败时仅记录警告，未通知用户，内容可能静默丢失
+- `openrouter.ts` 第 336-373 行：流式响应中如果收到非 JSON 的 `data:` 行，仅记录日志后丢弃，未向客户端转发错误
+
+### 四、测试覆盖评估
+
+#### 4.1 已覆盖（良好）
+- `ratelimit.test.ts`: 覆盖 IP 获取、路由匹配、限流计数、响应头、清理逻辑（34 个测试）
+- `utils.test.ts`: 覆盖类名合并、ID 生成、文件大小格式化、localStorage 操作（15 个测试）
+- `openrouter.test.ts`: 覆盖输入清理、JSON 解析（16 个测试）
+- `save-result/route.test.ts`: 覆盖保存、验证、大小限制（4 个测试）
+- `result/[id]/route.test.ts`: 覆盖获取、不存在、过期（3 个测试）
+
+#### 4.2 未覆盖（需补充）
+- `middleware.ts`: 无测试，CORS、CSP、请求体大小限制等逻辑未验证
+- `stream.ts`: 无测试，SSE 解析、错误处理、AbortController 取消未验证
+- `analyze/route.ts` / `generate-graphic/route.ts`: 仅 `analyze` 有测试，`generate-graphic` 无测试
+- `fix-commands/route.ts`: 无测试，修复逻辑、重试限制、错误处理未验证
+- `page.tsx`: 无组件测试，交互逻辑、状态管理未验证
+- `useRealtimeGeoGebra.ts`: 无测试，命令提取、JSON 解析未验证
+
+### 五、代码风格一致性
+
+#### 5.1 不一致点
+- **日志前缀格式**: `openrouter.ts` 使用 `[Module][ISO时间]`，`analyze/route.ts` 使用 `[analyze][ISO时间]`，`save-result/route.ts` 使用 `[save-result]`，格式不统一
+- **错误响应结构**: 大部分路由使用 `{ success: false, error: { code, message } }`，但 `fix-commands/route.ts` 额外返回 `geogebra` 和 `fixedCommands` 字段在成功时，结构与其他路由不一致
+- **字符串引号**: `openrouter.ts` 中 `reasoning: { effort: "none" }` 使用双引号，项目其他位置多用单引号
+- **注释语言**: 大部分注释为中文，但 `openrouter.ts` 第 390 行的 `/** ── GeoGebra 系统提示` 使用了特殊符号分隔，与其他文件风格不同
+
+#### 5.2 建议
+- 统一日志格式为 `[模块] 消息` 或 `[模块][时间] 消息`
+- 统一 API 响应结构，成功时统一为 `{ success: true, data: T }`
+- 统一字符串引号为单引号（符合项目 `.prettierrc` 配置）
+
+### 六、修复建议优先级
+
+| 优先级 | 问题 | 建议修复方案 |
+|--------|------|-------------|
+| P0 | `middleware.ts` 允许空 Origin | 移除 `&& origin` 条件，或添加 `!origin` 时拒绝 |
+| P0 | `ratelimit.ts` unknown IP 共享配额 | 为 unknown IP 设置独立限制或拒绝服务 |
+| P1 | `resultStore.ts` 重复容量检查 | 移除 `MemoryResultStore.set` 中的抛出，或统一错误响应 |
+| P1 | `page.tsx` 类型推断不完整 | 为 `parsed.solution` 添加运行时类型守卫 |
+| P1 | `useRealtimeGeoGebra.ts` 类型不兼容 | 更新类型定义为 `Step[]` 并添加兼容处理 |
+| P2 | 测试覆盖不足 | 补充 middleware、stream、fix-commands、generate-graphic 测试 |
+| P2 | 代码风格不一致 | 配置 ESLint/Prettier 规则自动统一 |
+| P3 | `reasoning` 参数兼容性 | 根据模型动态决定是否添加此参数 |
+
+---
+
+*本报告由交叉审查生成，所有问题已验证并记录。*
