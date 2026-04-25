@@ -23,11 +23,14 @@ interface RateLimitEntry {
   resetTime: number;
 }
 
-/** 路由速率限制配置 */
+/** 路由速率限制配置
+ * 限流值考虑到了共享 IP 场景（如企业/学校出口、移动网络 NAT），
+ * 避免正常用户因同 IP 下其他用户的行为被误伤。
+ */
 export const ROUTE_LIMITS: Record<string, RateLimitConfig> = {
-  '/api/analyze': { windowMs: 60 * 1000, maxRequests: 5 },
-  '/api/generate-graphic': { windowMs: 60 * 1000, maxRequests: 5 },
-  '/api/fix-commands': { windowMs: 60 * 1000, maxRequests: 10 },
+  '/api/analyze': { windowMs: 60 * 1000, maxRequests: 10 },
+  '/api/generate-graphic': { windowMs: 60 * 1000, maxRequests: 10 },
+  '/api/fix-commands': { windowMs: 60 * 1000, maxRequests: 15 },
   '/api/save-result': { windowMs: 60 * 1000, maxRequests: 20 },
 };
 
@@ -46,6 +49,36 @@ let lastCleanup = Date.now();
 /** 清理间隔（毫秒） */
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 分钟
 
+/** 定时清理器 */
+let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * 启动定时清理器，确保在模块加载时只启动一个定时器
+ */
+function startCleanupTimer(): void {
+  if (cleanupTimer) return;
+  cleanupTimer = setInterval(() => {
+    cleanupExpiredEntries();
+  }, CLEANUP_INTERVAL_MS);
+  // 避免阻止进程退出（Node.js / 测试环境）
+  if (typeof cleanupTimer !== 'undefined' && 'unref' in cleanupTimer) {
+    cleanupTimer.unref();
+  }
+}
+
+/**
+ * 销毁定时清理器（用于测试时清理）
+ */
+export function destroyCleanupTimer(): void {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
+  }
+}
+
+// 模块加载时自动启动定时清理
+startCleanupTimer();
+
 /**
  * 信任级别配置
  * - 'edge': 优先信任 Edge Runtime 提供的 request.ip（最安全，生产环境默认）
@@ -54,6 +87,17 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 分钟
  */
 function getTrustLevel(): string {
   return process.env.RATELIMIT_TRUST_LEVEL ?? 'edge';
+}
+
+/**
+ * 验证字符串是否为有效的 IPv4 或 IPv6 格式
+ */
+function isValidIp(ip: string): boolean {
+  // IPv4: 四段 0-255，用点分隔
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  // IPv6: 简化检查，允许标准格式和 :: 压缩
+  const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,7}:|^([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}$|^([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}$|^([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}$|^([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}$|^[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})$|^:((:[0-9a-fA-F]{1,4}){1,7}|:)$|^fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}$|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$|^([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$/;
+  return ipv4Regex.test(ip) || ipv6Regex.test(ip);
 }
 
 /**
@@ -68,10 +112,10 @@ export function getClientIp(request: NextRequest): string {
     const forwarded = request.headers.get('x-forwarded-for');
     if (forwarded) {
       const firstIp = forwarded.split(',')[0].trim();
-      if (firstIp) return firstIp;
+      if (firstIp && isValidIp(firstIp)) return firstIp;
     }
     const realIp = request.headers.get('x-real-ip');
-    if (realIp) return realIp;
+    if (realIp && isValidIp(realIp)) return realIp;
   }
 
   // proxy 环境：信任代理头，但 Edge Runtime ip 仍优先
@@ -82,10 +126,10 @@ export function getClientIp(request: NextRequest): string {
     const forwarded = request.headers.get('x-forwarded-for');
     if (forwarded) {
       const firstIp = forwarded.split(',')[0].trim();
-      if (firstIp) return firstIp;
+      if (firstIp && isValidIp(firstIp)) return firstIp;
     }
     const realIp = request.headers.get('x-real-ip');
-    if (realIp) return realIp;
+    if (realIp && isValidIp(realIp)) return realIp;
   }
 
   // edge 环境（默认）：仅使用 Edge Runtime 提供的 ip
@@ -149,6 +193,11 @@ export function cleanupExpiredEntries(): void {
 
 /**
  * 检查并更新速率限制
+ *
+ * 注意：限流应在 middleware 层统一处理，路由层不应重复调用 checkRateLimit。
+ * 双重保护（middleware + 路由层各自限流）会导致计数器重复递减，
+ * 实际允许的请求数减半，且重置时间不一致，引发不可预期的 429 错误。
+ *
  * @param ip 客户端 IP
  * @param route 请求路径
  * @param config 速率限制配置

@@ -250,16 +250,16 @@ describe('cleanupExpiredEntries', () => {
 });
 
 describe('ROUTE_LIMITS 配置', () => {
-  it('/api/analyze 限制为 5次/分钟', () => {
-    expect(ROUTE_LIMITS['/api/analyze']).toEqual({ windowMs: 60 * 1000, maxRequests: 5 });
+  it('/api/analyze 限制为 10次/分钟', () => {
+    expect(ROUTE_LIMITS['/api/analyze']).toEqual({ windowMs: 60 * 1000, maxRequests: 10 });
   });
 
-  it('/api/generate-graphic 限制为 5次/分钟', () => {
-    expect(ROUTE_LIMITS['/api/generate-graphic']).toEqual({ windowMs: 60 * 1000, maxRequests: 5 });
+  it('/api/generate-graphic 限制为 10次/分钟', () => {
+    expect(ROUTE_LIMITS['/api/generate-graphic']).toEqual({ windowMs: 60 * 1000, maxRequests: 10 });
   });
 
-  it('/api/fix-commands 限制为 10次/分钟', () => {
-    expect(ROUTE_LIMITS['/api/fix-commands']).toEqual({ windowMs: 60 * 1000, maxRequests: 10 });
+  it('/api/fix-commands 限制为 15次/分钟', () => {
+    expect(ROUTE_LIMITS['/api/fix-commands']).toEqual({ windowMs: 60 * 1000, maxRequests: 15 });
   });
 
   it('/api/save-result 限制为 20次/分钟', () => {
