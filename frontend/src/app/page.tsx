@@ -16,6 +16,7 @@ import { ImageUploader } from '@/components/ImageUploader';
 import { GeoGebraViewer } from '@/components/GeoGebraViewer';
 import { cn, generateId, setStoredResult } from '@/lib/utils';
 import { parseVlmJson } from '@/lib/openrouter';
+import { vlmOutputSchema } from '@/lib/validation';
 import { streamRequest } from '@/lib/stream';
 import { useStreamContent } from '@/hooks/useStreamContent';
 import { useRealtimeGeoGebra } from '@/hooks/useRealtimeGeoGebra';
@@ -147,7 +148,7 @@ function HomeContent() {
             solution: string[];
           };
           try {
-            parsed = parseVlmJson(result.content);
+            parsed = parseVlmJson(result.content, vlmOutputSchema);
           } catch {
             console.error('[analyze] JSON 解析失败，原始内容:', result.content);
             throw new Error('AI 返回格式错误，请重试');
@@ -285,7 +286,7 @@ function HomeContent() {
             goal: string;
           };
           try {
-            parsed = parseVlmJson(result.content);
+            parsed = parseVlmJson(result.content, vlmOutputSchema);
           } catch {
             console.error('[generate-graphic] JSON 解析失败，原始内容:', result.content);
             throw new Error('AI 返回格式错误，请重试');

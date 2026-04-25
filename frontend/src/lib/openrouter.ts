@@ -3,6 +3,9 @@
  * 模型：qwen/qwen3-vl-235b-a22b-instruct（阿里通义千问多模态模型，国内可用，已禁用思考模式）
  */
 
+import { z } from 'zod';
+import { openRouterResponseSchema, openRouterStreamChunkSchema } from './validation';
+
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 // 从环境变量读取，支持运行时切换模型（设置 OPENROUTER_MODEL 环境变量）
 const MODEL = process.env.OPENROUTER_MODEL ?? 'qwen/qwen3-vl-235b-a22b-instruct';
@@ -175,15 +178,16 @@ export async function callOpenRouter(
       });
     }
 
-    const typedData = data as {
-      choices?: Array<{
-        message?: {
-          content?: string;
-          reasoning_details?: Array<{ type?: string; text?: string }>;
-        }
-      }>;
-      error?: { message?: string; code?: number };
-    };
+    const parsed = openRouterResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      logStructured('error', 'OpenRouter', 'API 响应验证失败', {
+        totalMs: Date.now() - requestStart,
+        errors: parsed.error.issues,
+      });
+      throw new Error(`OpenRouter API 响应格式错误: ${parsed.error.issues.map((i) => i.message).join(', ')}`);
+    }
+
+    const typedData = parsed.data;
 
     // 检查是否有错误
     if (typedData.error) {
@@ -330,27 +334,28 @@ export async function streamOpenRouter(
         }
 
         try {
-          const parsed = JSON.parse(data) as {
-            choices?: Array<{
-              delta?: {
-                content?: string;
-                reasoning_details?: Array<{ type?: string; text?: string }>;
-              };
-            }>;
-            error?: { message?: string };
-          };
+          const rawParsed = JSON.parse(data);
+          const parsed = openRouterStreamChunkSchema.safeParse(rawParsed);
+          if (!parsed.success) {
+            logStructured('error', 'OpenRouter Stream', 'SSE chunk 验证失败', {
+              errors: parsed.error.issues,
+              dataPreview: data.substring(0, 200),
+            });
+            continue;
+          }
 
-          if (parsed.error) {
+          if (parsed.data.error) {
             logStructured('error', 'OpenRouter Stream', '流错误', {
-              error: parsed.error,
+              error: parsed.data.error,
             });
             controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ error: parsed.error.message })}\n\n`)
+              encoder.encode(`data: ${JSON.stringify({ error: parsed.data.error.message })}
+\n`)
             );
             continue;
           }
 
-          const delta = parsed.choices?.[0]?.delta;
+          const delta = parsed.data.choices?.[0]?.delta;
           // 只转发 content，忽略 reasoning_details（CoT思维链），避免前端等待
           const content = delta?.content;
 
@@ -638,8 +643,9 @@ export function sanitizeInput(input: string, maxLength = 5000): string {
 
 /**
  * 解析 VLM 返回的 JSON（容忍 markdown 代码块和 thinking 标签）
+ * 使用 zod schema 进行运行时验证
  */
-export function parseVlmJson<T>(content: string): T {
+export function parseVlmJson<T extends z.ZodTypeAny>(content: string, schema: T): z.infer<T> {
   let cleaned = content;
 
   // 处理 <think> 或 <thinking> 标签（Kimi K2.5 等推理模型）
@@ -648,7 +654,7 @@ export function parseVlmJson<T>(content: string): T {
     cleaned.lastIndexOf('</think>'),
     cleaned.lastIndexOf('</thinking>')
   );
-  
+
   if (thinkEndIndex > 0) {
     // 提取结束标签后的内容
     const tagLength = cleaned.indexOf('</thinking>') === thinkEndIndex ? 11 : 8;
@@ -677,5 +683,18 @@ export function parseVlmJson<T>(content: string): T {
     }
   }
 
-  return JSON.parse(cleaned) as T;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (err) {
+    throw new Error(`JSON 解析失败: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const validated = schema.safeParse(parsed);
+  if (!validated.success) {
+    const issues = validated.error.issues.map((i) => `${i.path.join('.') || 'root'}: ${i.message}`).join('; ');
+    throw new Error(`VLM 输出验证失败: ${issues}`);
+  }
+
+  return validated.data;
 }

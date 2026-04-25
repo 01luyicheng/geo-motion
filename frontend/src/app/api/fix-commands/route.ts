@@ -6,7 +6,7 @@ import {
   type OpenRouterMessage,
   sanitizeInput,
 } from '@/lib/openrouter';
-import { fixCommandsRequestSchema, safeParseJson } from '@/lib/validation';
+import { fixCommandsRequestSchema, safeParseJson, fixCommandsOutputSchema } from '@/lib/validation';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 解析响应
-    const parsed = parseVlmJson<{ geogebra: string }>(response);
+    const parsed = parseVlmJson(response, fixCommandsOutputSchema);
 
     if (!parsed.geogebra) {
       throw new Error('修复后的命令为空');

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 import { sanitizeInput, parseVlmJson } from './openrouter';
+
+const testSchema = z.object({
+  geogebra: z.string().min(1),
+});
 
 describe('sanitizeInput', () => {
   it('应截断超过最大长度的输入', () => {
@@ -67,25 +72,30 @@ describe('sanitizeInput', () => {
 describe('parseVlmJson', () => {
   it('应解析普通 JSON', () => {
     const input = '{"geogebra": "A=(1,1)"}';
-    const result = parseVlmJson<{ geogebra: string }>(input);
+    const result = parseVlmJson(input, testSchema);
     expect(result.geogebra).toBe('A=(1,1)');
   });
 
   it('应去除 markdown 代码块', () => {
     const input = '```json\n{"geogebra": "A=(1,1)"}\n```';
-    const result = parseVlmJson<{ geogebra: string }>(input);
+    const result = parseVlmJson(input, testSchema);
     expect(result.geogebra).toBe('A=(1,1)');
   });
 
   it('应处理 think 标签', () => {
     const input = '<think>思考过程</think>\n{"geogebra": "A=(1,1)"}';
-    const result = parseVlmJson<{ geogebra: string }>(input);
+    const result = parseVlmJson(input, testSchema);
     expect(result.geogebra).toBe('A=(1,1)');
   });
 
   it('应提取 JSON 部分', () => {
     const input = '一些说明文字\n{"geogebra": "A=(1,1)"}\n更多文字';
-    const result = parseVlmJson<{ geogebra: string }>(input);
+    const result = parseVlmJson(input, testSchema);
     expect(result.geogebra).toBe('A=(1,1)');
+  });
+
+  it('验证失败时应抛出包含详细错误信息的错误', () => {
+    const input = '{"geogebra": ""}';
+    expect(() => parseVlmJson(input, testSchema)).toThrow('VLM 输出验证失败');
   });
 });
