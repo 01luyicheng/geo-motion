@@ -2,19 +2,6 @@
 
 ## 高优先级
 
-### H5. API 路由缺乏速率限制
-- **文件**: `frontend/src/app/api/analyze/route.ts`、`frontend/src/app/api/generate-graphic/route.ts`、`frontend/src/app/api/fix-commands/route.ts`
-- **问题描述**: 任何人都可以不限次数调用 API，单用户可迅速耗尽 OpenRouter API 配额
-- **影响**: API 密钥可被滥用，造成直接经济损失
-- **建议**: 添加基于 IP 的请求频率限制（可使用 `@upstash/ratelimit` 或 Next.js middleware）
-- **交叉审查发现**:
-  - **双重保护冲突风险**: middleware 和路由层都调用 `checkRateLimit`，同一请求会被计数两次，实际限制变为配置值的一半（例如配置 5 次/分钟，实际只能请求 2-3 次）
-  - **IP 伪造风险**: `getClientIp` 优先信任 `x-forwarded-for` 头，攻击者可伪造此头绕过限制或嫁祸他人
-  - **共享 IP 误伤**: 学校/企业网络下多个用户共用出口 IP，5 次/分钟的限制可能误伤正常用户
-  - **无用户级限制**: 仅基于 IP 限制，同一用户切换网络（如 WiFi -> 4G）即可绕过限制
-  - **清理机制不完善**: `cleanupExpiredEntries` 仅在 `checkRateLimit` 调用时触发，如果某个 IP 长期不请求，其过期数据会一直留在内存中直到下次清理触发
-  - **缺少分布式支持**: 内存存储无法在多实例部署时共享限流状态，负载均衡下限制失效
-
 ---
 
 ## 中优先级
