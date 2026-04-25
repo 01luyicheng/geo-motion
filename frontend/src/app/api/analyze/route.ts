@@ -77,14 +77,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 返回 SSE 流
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
-    });
+    // 返回 SSE 流，携带限流响应头（从 middleware 传递的请求头中读取）
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    };
+    const rateLimitLimit = req.headers.get('X-RateLimit-Limit');
+    const rateLimitRemaining = req.headers.get('X-RateLimit-Remaining');
+    const rateLimitReset = req.headers.get('X-RateLimit-Reset');
+    if (rateLimitLimit) headers['X-RateLimit-Limit'] = rateLimitLimit;
+    if (rateLimitRemaining) headers['X-RateLimit-Remaining'] = rateLimitRemaining;
+    if (rateLimitReset) headers['X-RateLimit-Reset'] = rateLimitReset;
+
+    return new Response(stream, { headers });
   } catch (err) {
     const message = err instanceof Error ? err.message : '服务器内部错误';
     console.error(`[analyze][${new Date().toISOString()}] 错误:`, message);

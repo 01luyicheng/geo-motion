@@ -40,6 +40,12 @@ export const DEFAULT_LIMIT: RateLimitConfig = {
   maxRequests: 30,
 };
 
+/** 未知 IP 的速率限制（极低，防止共享配额被滥用） */
+export const UNKNOWN_IP_LIMIT: RateLimitConfig = {
+  windowMs: 60 * 1000,
+  maxRequests: 3,
+};
+
 /** 内存存储：IP -> 路径 -> 条目 */
 const store = new Map<string, Map<string, RateLimitEntry>>();
 
@@ -95,8 +101,8 @@ function getTrustLevel(): string {
  * 验证字符串是否为有效的 IPv4 或 IPv6 格式
  */
 function isValidIp(ip: string): boolean {
-  // IPv4: 四段 0-255，用点分隔
-  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  // IPv4: 严格验证每段 0-255
+  const ipv4Regex = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
   // IPv6: 简化检查，允许标准格式和 :: 压缩
   const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,7}:|^([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}$|^([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}$|^([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}$|^([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}$|^[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})$|^:((:[0-9a-fA-F]{1,4}){1,7}|:)$|^fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}$|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$|^([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$/;
   return ipv4Regex.test(ip) || ipv6Regex.test(ip);
@@ -211,6 +217,9 @@ export function checkRateLimit(
 ): RateLimitResult {
   const now = Date.now();
 
+  // 未知 IP 使用独立极低限制，防止所有无 IP 请求共享配额
+  const effectiveConfig = ip === 'unknown' ? UNKNOWN_IP_LIMIT : config;
+
   // 触发清理（间隔到达时）
   if (now - lastCleanup > CLEANUP_INTERVAL_MS) {
     cleanupExpiredEntries();
@@ -228,23 +237,23 @@ export function checkRateLimit(
   if (!entry || entry.resetTime <= now) {
     entry = {
       count: 0,
-      resetTime: now + config.windowMs,
+      resetTime: now + effectiveConfig.windowMs,
     };
     routes.set(route, entry);
   }
 
   // 检查是否超过限制
-  const allowed = entry.count < config.maxRequests;
+  const allowed = entry.count < effectiveConfig.maxRequests;
 
   if (allowed) {
     entry.count++;
   }
 
-  const remaining = Math.max(0, config.maxRequests - entry.count);
+  const remaining = Math.max(0, effectiveConfig.maxRequests - entry.count);
 
   return {
     allowed,
-    limit: config.maxRequests,
+    limit: effectiveConfig.maxRequests,
     remaining,
     resetTime: Math.ceil(entry.resetTime / 1000),
   };
