@@ -2,22 +2,6 @@
 
 ## 高优先级
 
-### H4. API 安全加固
-- **文件**: `frontend/src/app/api/*`, `frontend/src/lib/openrouter.ts`
-- **问题描述**:
-  - **CORS 配置缺失**: 所有 API 路由均未设置 CORS 头
-  - **输入验证不足**: 无严格的长度限制和注入防护，存在 Prompt 注入风险
-  - **无 CSP 配置**: 缺少内容安全策略
-- **影响**: 存在 CSRF 攻击、Prompt 注入等安全风险
-- **建议**: 添加 CORS 白名单、实现请求体大小限制、添加 CSP 配置
-- **交叉审查发现**:
-  - **CORS 配置过于宽松**: `middleware.ts` 第 27 行 `!origin` 允许无 Origin 头的请求（如 curl、Postman），生产环境应移除
-  - **CSP 策略存在风险**: `script-src 'unsafe-eval' 'unsafe-inline'` 大幅削弱 CSP 保护，虽然 GeoGebra 需要 eval，但应限制为仅加载 GeoGebra 相关脚本
-  - **中间件 matcher 范围过大**: `middleware.ts` 第 137 行 matcher 匹配所有非静态资源路径，包括 `_next/data` 等内部路径，可能干扰 Next.js 内部功能
-  - **zod 验证过于严格**: `imageDataUriSchema` 使用正则 `dataUriRegex` 要求 base64 字符集，但某些合法 data URI 可能包含 URL 编码字符，导致误拦截
-  - **缺少请求签名验证**: 虽然添加了输入清理，但 API 仍无请求签名/HMAC 验证，无法防止重放攻击
-  - **敏感信息泄露**: `openrouter.ts` 中大量 `console.log` 输出请求体内容，可能泄露用户上传的图片数据（base64 编码）到日志
-
 ### H5. API 路由缺乏速率限制
 - **文件**: `frontend/src/app/api/analyze/route.ts`、`frontend/src/app/api/generate-graphic/route.ts`、`frontend/src/app/api/fix-commands/route.ts`
 - **问题描述**: 任何人都可以不限次数调用 API，单用户可迅速耗尽 OpenRouter API 配额
