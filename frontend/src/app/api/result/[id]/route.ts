@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getResultStore } from '@/app/api/lib/resultStore';
+import { getResultStore, lazyCleanup } from '@/app/api/lib/resultStore';
 
 export async function GET(
   _req: NextRequest,
@@ -19,6 +19,10 @@ export async function GET(
     }
 
     const store = getResultStore();
+
+    // 惰性清理过期数据
+    lazyCleanup(store);
+
     const entry = store.get(id);
 
     if (!entry) {

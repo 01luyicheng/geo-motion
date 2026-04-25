@@ -8,7 +8,22 @@ import {
   checkStoreAvailability,
 } from '@/app/api/lib/resultStore';
 
+// 请求体大小限制：10MB
+const MAX_BODY_SIZE = 10 * 1024 * 1024;
+
 export async function POST(req: NextRequest) {
+  // 检查请求体大小
+  const contentLength = req.headers.get('content-length');
+  if (contentLength && parseInt(contentLength, 10) > MAX_BODY_SIZE) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: { code: 'PAYLOAD_TOO_LARGE', message: '请求体超过 10MB 限制' },
+      }),
+      { status: 413, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
   // 检查存储可用性（环境检测 + 容量限制）
   const storeCheck = checkStoreAvailability();
   if (!storeCheck.available) {
@@ -30,8 +45,11 @@ export async function POST(req: NextRequest) {
 
     const body = parseResult.data;
 
-    const id = generateId();
     const store = getResultStore();
+    let id = generateId();
+    while (store.has(id)) {
+      id = generateId();
+    }
     const entry = createStoredEntry(body.result);
 
     store.set(id, entry);

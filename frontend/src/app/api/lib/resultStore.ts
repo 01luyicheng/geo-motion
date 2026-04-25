@@ -61,20 +61,34 @@ class MemoryResultStore implements IResultStore {
 // 单例存储实例
 const memoryStore = new MemoryResultStore();
 
-// 定期清理过期数据（每 10 分钟）
-setInterval(() => {
+// GET 访问计数器（用于触发惰性全量清理）
+let getAccessCount = 0;
+const FULL_CLEAN_INTERVAL = 100;
+
+/**
+ * 惰性清理过期数据
+ * 在 GET 访问时检查并清理过期条目，每 FULL_CLEAN_INTERVAL 次触发一次全量清理
+ */
+export function lazyCleanup(store: IResultStore): number {
+  getAccessCount++;
   const now = Date.now();
   let cleaned = 0;
-  for (const [key, entry] of memoryStore.entries()) {
-    if (entry.expiresAt < now) {
-      memoryStore.delete(key);
-      cleaned++;
+
+  if (getAccessCount % FULL_CLEAN_INTERVAL === 0) {
+    // 全量清理
+    for (const [key, entry] of store.entries()) {
+      if (entry.expiresAt < now) {
+        store.delete(key);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      console.log(`[resultStore] 全量清理 ${cleaned} 条过期数据，剩余 ${store.size} 条`);
     }
   }
-  if (cleaned > 0) {
-    console.log(`[resultStore] 清理 ${cleaned} 条过期数据，剩余 ${memoryStore.size} 条`);
-  }
-}, 10 * 60 * 1000);
+
+  return cleaned;
+}
 
 // 检测是否在 Vercel Serverless 环境
 function isVercelServerless(): boolean {

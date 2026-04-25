@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from './route';
-import { memoryStore } from '@/app/api/lib/resultStore';
+import { GET } from '@/app/api/result/[id]/route';
 
 // 模拟 validation 模块
 vi.mock('@/lib/validation', async () => {
@@ -29,7 +29,6 @@ vi.mock('@/lib/validation', async () => {
 
 describe('POST /api/save-result', () => {
   beforeEach(() => {
-    memoryStore.clear();
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
@@ -46,7 +45,7 @@ describe('POST /api/save-result', () => {
     expect(body.error.code).toBe('VALIDATION_ERROR');
   });
 
-  it('保存结果后返回唯一 ID', async () => {
+  it('保存结果后返回唯一 ID，且可通过 GET 访问', async () => {
     const result = {
       id: 'test-id',
       geogebra: 'A=(1,1)',
@@ -67,7 +66,16 @@ describe('POST /api/save-result', () => {
     expect(body.success).toBe(true);
     expect(body.data.id).toBeDefined();
     expect(typeof body.data.id).toBe('string');
-    expect(memoryStore.has(body.data.id)).toBe(true);
+
+    // 通过 GET API 验证数据已保存，而非直接操作内部存储
+    const getRes = await GET(
+      new Request(`http://localhost/api/result/${body.data.id}`) as unknown as import('next/server').NextRequest,
+      { params: Promise.resolve({ id: body.data.id }) }
+    );
+    expect(getRes.status).toBe(200);
+    const getBody = await getRes.json();
+    expect(getBody.success).toBe(true);
+    expect(getBody.data.geogebra).toBe(result.geogebra);
   });
 
   it('无效 JSON 时返回 400（由 safeParseJson 处理）', async () => {
@@ -81,5 +89,20 @@ describe('POST /api/save-result', () => {
     const body = await res.json();
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('INVALID_JSON');
+  });
+
+  it('请求体超过 10MB 时返回 413', async () => {
+    const bigData = 'x'.repeat(11 * 1024 * 1024);
+    const req = new Request('http://localhost/api/save-result', {
+      method: 'POST',
+      headers: { 'content-length': String(11 * 1024 * 1024) },
+      body: JSON.stringify({ result: bigData }),
+    }) as unknown as import('next/server').NextRequest;
+
+    const res = await POST(req);
+    expect(res.status).toBe(413);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('PAYLOAD_TOO_LARGE');
   });
 });

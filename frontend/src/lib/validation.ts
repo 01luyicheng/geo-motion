@@ -72,10 +72,19 @@ export const saveResultRequestSchema = z.object({
   result: z.object(
     {
       id: z.string().min(1),
-      geogebra: z.string().min(1),
-      conditions: z.array(z.string()),
-      goal: z.string(),
-      solution: z.array(z.union([z.string(), z.object({ text: z.string(), commandIndices: z.array(z.number()), explanation: z.string().optional() })])).optional(),
+      geogebra: z.string().min(1).max(50000, 'GeoGebra 数据超过最大长度限制'),
+      conditions: z.array(z.string().max(500, '条件项超过最大长度限制')).max(100, '条件数量超过最大限制'),
+      goal: z.string().max(2000, '目标描述超过最大长度限制'),
+      solution: z.array(
+        z.union([
+          z.string(),
+          z.object({
+            text: z.string().max(5000, '解答文本超过最大长度限制'),
+            commandIndices: z.array(z.number()),
+            explanation: z.string().max(5000, '解答说明超过最大长度限制').optional(),
+          }),
+        ])
+      ).max(200, '解答步骤数量超过最大限制').optional(),
       createdAt: z.string(),
     },
     { required_error: '未提供分析结果' }
