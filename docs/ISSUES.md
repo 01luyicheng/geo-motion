@@ -152,11 +152,6 @@
   ```
   虽然使用了 zod 验证，但 `parsed.solution` 的类型为 `(string | Step)[]`，后续代码第 147 行直接调用 `.map()` 处理，运行时可能出错。
 
-- **[MEDIUM]** `useRealtimeGeoGebra.ts` 第 15 行：`solution: string[] | Step[]` 与类型定义 `Step[]` 不兼容
-  ```typescript
-  solution: string[] | Step[];
-  ```
-  这导致实时预览组件无法正确处理带 `explanation` 的新格式数据。
 
 #### 2.2 逻辑错误
 - **[HIGH]** `middleware.ts` 第 62 行：CORS 源检查允许空 origin
@@ -234,7 +229,6 @@
 | P0 | `ratelimit.ts` unknown IP 共享配额 | 为 unknown IP 设置独立限制或拒绝服务 |
 | P1 | `resultStore.ts` 重复容量检查 | 移除 `MemoryResultStore.set` 中的抛出，或统一错误响应 |
 | P1 | `page.tsx` 类型推断不完整 | 为 `parsed.solution` 添加运行时类型守卫 |
-| P1 | `useRealtimeGeoGebra.ts` 类型不兼容 | 更新类型定义为 `Step[]` 并添加兼容处理 |
 | P2 | 测试覆盖不足 | 补充 middleware、stream、fix-commands、generate-graphic 测试 |
 | P2 | 代码风格不一致 | 配置 ESLint/Prettier 规则自动统一 |
 
