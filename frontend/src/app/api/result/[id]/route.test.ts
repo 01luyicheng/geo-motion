@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { GET } from './route';
 import { POST as saveResultPost } from '../../save-result/route';
 import { resetStore } from '@/app/api/lib/resultStore';
