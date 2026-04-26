@@ -65,10 +65,11 @@ export async function streamRequest(
             onChunk(parsed.content);
           }
         } catch {
-          // 解析失败时记录警告，避免静默丢失内容（仅开发环境）
+          // 解析失败时返回错误，避免静默丢失内容
           if (process.env.NODE_ENV === 'development') {
             console.warn('[stream] SSE 数据解析失败:', data);
           }
+          return { content: fullContent, error: '流式响应解析失败，请重试' };
         }
       }
     }

@@ -221,7 +221,7 @@ describe('streamRequest', () => {
       // 收到 error 后不再处理后续 chunk（因为直接 return）
     });
 
-    it('SSE JSON 解析失败不中断流（开发环境警告）', async () => {
+    it('SSE JSON 解析失败时返回错误（开发环境保留警告）', async () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'development';
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -242,14 +242,15 @@ describe('streamRequest', () => {
       const result = await streamRequest('https://api.example.com/stream', {}, onChunk);
 
       expect(warnSpy).toHaveBeenCalledWith('[stream] SSE 数据解析失败:', 'not-json');
-      expect(onChunk).toHaveBeenCalledTimes(1);
-      expect(result.content).toBe('ok');
+      expect(onChunk).not.toHaveBeenCalled();
+      expect(result.content).toBe('');
+      expect(result.error).toBe('流式响应解析失败，请重试');
 
       warnSpy.mockRestore();
       process.env.NODE_ENV = originalEnv;
     });
 
-    it('SSE JSON 解析失败静默跳过（生产环境）', async () => {
+    it('SSE JSON 解析失败时返回错误（生产环境不打印警告）', async () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -270,7 +271,8 @@ describe('streamRequest', () => {
       const result = await streamRequest('https://api.example.com/stream', {}, onChunk);
 
       expect(warnSpy).not.toHaveBeenCalled();
-      expect(result.content).toBe('ok');
+      expect(result.content).toBe('');
+      expect(result.error).toBe('流式响应解析失败，请重试');
 
       warnSpy.mockRestore();
       process.env.NODE_ENV = originalEnv;
