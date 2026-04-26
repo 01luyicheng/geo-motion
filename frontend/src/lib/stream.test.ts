@@ -25,6 +25,7 @@ describe('streamRequest', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -222,8 +223,7 @@ describe('streamRequest', () => {
     });
 
     it('SSE JSON 解析失败时返回错误（开发环境保留警告）', async () => {
-      const originalEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'development';
+      vi.stubEnv('NODE_ENV', 'development');
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const chunks = [
@@ -247,12 +247,10 @@ describe('streamRequest', () => {
       expect(result.error).toBe('流式响应解析失败，请重试');
 
       warnSpy.mockRestore();
-      process.env.NODE_ENV = originalEnv;
     });
 
     it('SSE JSON 解析失败时返回错误（生产环境不打印警告）', async () => {
-      const originalEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'production';
+      vi.stubEnv('NODE_ENV', 'production');
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const chunks = [
@@ -275,7 +273,6 @@ describe('streamRequest', () => {
       expect(result.error).toBe('流式响应解析失败，请重试');
 
       warnSpy.mockRestore();
-      process.env.NODE_ENV = originalEnv;
     });
   });
 
