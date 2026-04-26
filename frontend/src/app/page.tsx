@@ -22,6 +22,31 @@ import { useStreamContent } from '@/hooks/useStreamContent';
 import { useRealtimeGeoGebra } from '@/hooks/useRealtimeGeoGebra';
 import type { AnalysisResult, UploadMode } from '@/types';
 
+function normalizeSolution(
+  solution: Array<string | { text: string; commandIndices: number[]; explanation?: string }> | undefined
+): AnalysisResult['solution'] {
+  if (!solution || solution.length === 0) return [];
+  if (solution.every((item) => typeof item === 'string')) {
+    return solution as string[];
+  }
+  return solution.map((item) => {
+    if (typeof item === 'string') return item;
+    return {
+      text: item.text,
+      commandIndices: item.commandIndices,
+      explanation: item.explanation,
+    };
+  }).map((item) => {
+    if (typeof item === 'string') {
+      return {
+        text: item,
+        commandIndices: [],
+      };
+    }
+    return item;
+  });
+}
+
 // ── 首页内容（需要 useSearchParams，放入 Suspense）──────────────
 
 function HomeContent() {
@@ -141,12 +166,7 @@ function HomeContent() {
             throw new Error(result.error);
           }
 
-          let parsed: {
-            geogebra: string;
-            conditions: string[];
-            goal: string;
-            solution: string[];
-          };
+          let parsed: ReturnType<typeof parseVlmJson<typeof vlmOutputSchema>>;
           try {
             parsed = parseVlmJson(result.content, vlmOutputSchema);
           } catch {
@@ -187,7 +207,7 @@ function HomeContent() {
             geogebra: parsed.geogebra,
             conditions: parsed.conditions,
             goal: parsed.goal,
-            solution: parsed.solution ?? [],
+            solution: normalizeSolution(parsed.solution),
             createdAt: new Date().toISOString(),
           };
 
@@ -280,11 +300,7 @@ function HomeContent() {
             throw new Error(result.error);
           }
 
-          let parsed: {
-            geogebra: string;
-            conditions: string[];
-            goal: string;
-          };
+          let parsed: ReturnType<typeof parseVlmJson<typeof vlmOutputSchema>>;
           try {
             parsed = parseVlmJson(result.content, vlmOutputSchema);
           } catch {

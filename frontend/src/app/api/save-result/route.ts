@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { generateId } from '@/lib/utils';
-import type { AnalysisResult } from '@/types';
+import type { AnalysisResult, Step } from '@/types';
 import { saveResultRequestSchema, safeParseJson } from '@/lib/validation';
 import {
   getResultStore,
@@ -12,6 +12,25 @@ const isDev = process.env.NODE_ENV === 'development';
 
 // 请求体大小限制：10MB
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
+
+function normalizeSolution(
+  solution: Array<string | { text: string; commandIndices: number[]; explanation?: string }> | undefined
+): string[] | Step[] {
+  if (!solution || solution.length === 0) return [];
+  if (solution.every((item) => typeof item === 'string')) {
+    return solution as string[];
+  }
+  return solution.map((item): Step => {
+    if (typeof item === 'string') {
+      return { text: item, commandIndices: [] };
+    }
+    return {
+      text: item.text,
+      commandIndices: item.commandIndices,
+      explanation: item.explanation,
+    };
+  });
+}
 
 export async function POST(req: NextRequest) {
   // 检查请求体大小
@@ -46,13 +65,17 @@ export async function POST(req: NextRequest) {
     }
 
     const body = parseResult.data;
+    const normalizedResult: AnalysisResult = {
+      ...body.result,
+      solution: normalizeSolution(body.result.solution),
+    };
 
     const store = getResultStore();
     let id = generateId();
     while (store.has(id)) {
       id = generateId();
     }
-    const entry = createStoredEntry(body.result);
+    const entry = createStoredEntry(normalizedResult);
 
     const saved = store.set(id, entry);
     if (!saved) {

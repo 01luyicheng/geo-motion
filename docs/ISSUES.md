@@ -146,11 +146,6 @@
 ### 二、新引入问题
 
 #### 2.1 类型错误
-- **[CRITICAL]** `page.tsx` 第 144 行：`parsed` 类型推断不完整
-  ```typescript
-  parsed = parseVlmJson(result.content, vlmOutputSchema);
-  ```
-  虽然使用了 zod 验证，但 `parsed.solution` 的类型为 `(string | Step)[]`，后续代码第 147 行直接调用 `.map()` 处理，运行时可能出错。
 
 
 #### 2.2 逻辑错误
@@ -173,6 +168,7 @@
   }
   ```
   但 `save-result/route.ts` 第 30-33 行已通过 `checkStoreAvailability()` 提前检查，此处重复检查且抛出未捕获的异常可能导致 500 错误而非预期的 503。
+
 
 
 #### 2.3 性能问题
@@ -228,7 +224,6 @@
 | P0 | `middleware.ts` 允许空 Origin | 移除 `&& origin` 条件，或添加 `!origin` 时拒绝 |
 | P0 | `ratelimit.ts` unknown IP 共享配额 | 为 unknown IP 设置独立限制或拒绝服务 |
 | P1 | `resultStore.ts` 重复容量检查 | 移除 `MemoryResultStore.set` 中的抛出，或统一错误响应 |
-| P1 | `page.tsx` 类型推断不完整 | 为 `parsed.solution` 添加运行时类型守卫 |
 | P2 | 测试覆盖不足 | 补充 middleware、stream、fix-commands、generate-graphic 测试 |
 | P2 | 代码风格不一致 | 配置 ESLint/Prettier 规则自动统一 |
 

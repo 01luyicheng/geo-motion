@@ -29,6 +29,21 @@ import type { AnalysisResult, Step } from '@/types';
 
 // ─────────────────────────────────────────────────────────────────
 
+function isValidStep(value: unknown): value is Step {
+  if (!value || typeof value !== 'object') return false;
+  const maybeStep = value as {
+    text?: unknown;
+    commandIndices?: unknown;
+    explanation?: unknown;
+  };
+  return (
+    typeof maybeStep.text === 'string' &&
+    Array.isArray(maybeStep.commandIndices) &&
+    maybeStep.commandIndices.every((i) => typeof i === 'number') &&
+    (typeof maybeStep.explanation === 'undefined' || typeof maybeStep.explanation === 'string')
+  );
+}
+
 export default function AnalyzePage({
   params,
 }: {
@@ -128,16 +143,8 @@ function AnalyzeContent({ id }: { id: string }) {
           return { text: s, commandIndices: [] };
         }
         // 运行时验证 Step 结构
-        if (
-          s &&
-          typeof s === 'object' &&
-          'text' in s &&
-          typeof (s as Record<string, unknown>).text === 'string' &&
-          'commandIndices' in s &&
-          Array.isArray((s as Record<string, unknown>).commandIndices) &&
-          (s as Record<string, unknown>).commandIndices.every((i) => typeof i === 'number')
-        ) {
-          return s as Step;
+        if (isValidStep(s)) {
+          return s;
         }
         // 不符合 Step 结构时回退到字符串处理
         return { text: String(s), commandIndices: [] };
