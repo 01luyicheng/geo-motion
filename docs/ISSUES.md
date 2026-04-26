@@ -220,21 +220,15 @@
 
 ### 新发现问题（待后续修复）
 
-#### [CRITICAL] TypeScript 类型错误（7 个）
+#### [CRITICAL] TypeScript 类型错误（5 个）
 
-**1. `AnimationControls.tsx` - onStep 参数类型不匹配（2 处）**
-- **文件**: `frontend/src/components/AnimationControls.tsx:76, 135`
-- **错误**: `Argument of type 'number' is not assignable to parameter of type '1 | -1'`
-- **原因**: `onStep(-current)` 和 `onStep(total - 1 - current)` 产生 `number` 类型，但 `onStep` 签名要求字面量联合类型 `1 | -1`
-- **影响**: 前端生产构建无法通过
-
-**2. `stream.test.ts` - 只读属性赋值（4 处）**
+**1. `stream.test.ts` - 只读属性赋值（4 处）**
 - **文件**: `frontend/src/lib/stream.test.ts:226, 250, 255, 278`
 - **错误**: `Cannot assign to 'NODE_ENV' because it is a read-only property`
 - **原因**: 测试中直接修改 `process.env.NODE_ENV`，但 TypeScript 将其声明为 readonly
 - **影响**: 类型检查失败；测试运行通过但构建失败
 
-**3. `validation.ts` - zod 选项参数错误**
+**2. `validation.ts` - zod 选项参数错误**
 - **文件**: `frontend/src/lib/validation.ts:94`
 - **错误**: `Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: ... }'`
 - **原因**: 使用了 `required_error` 选项，但当前 zod 版本不支持此参数名（应为 `message` 或其他正确参数）

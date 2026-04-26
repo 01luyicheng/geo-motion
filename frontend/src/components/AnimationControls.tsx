@@ -12,7 +12,7 @@ interface AnimationControlsProps {
   onPlay: () => void;
   onPause: () => void;
   onReset: () => void;
-  onStep: (delta: 1 | -1) => void;
+  onStep: (delta: number) => void;
   onSpeedChange: (ms: number) => void;
   className?: string;
 }
