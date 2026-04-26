@@ -9,6 +9,7 @@ import { openRouterResponseSchema, openRouterStreamChunkSchema } from './validat
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 // 从环境变量读取，支持运行时切换模型（设置 OPENROUTER_MODEL 环境变量）
 const MODEL = process.env.OPENROUTER_MODEL ?? 'qwen/qwen3-vl-235b-a22b-instruct';
+const REASONING_EFFORT_SUPPORTED_MODELS = ['qwen/qwen3-vl-235b-a22b-instruct'];
 
 export interface OpenRouterMessage {
   role: 'system' | 'user' | 'assistant';
@@ -88,6 +89,34 @@ function logStructured(
   }
 }
 
+function shouldSendReasoningEffort(model: string): boolean {
+  return REASONING_EFFORT_SUPPORTED_MODELS.includes(model);
+}
+
+function buildRequestPayload(
+  messages: OpenRouterMessage[],
+  options: OpenRouterOptions,
+  stream: boolean
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    model: MODEL,
+    messages,
+    temperature: options.temperature ?? 0.2,
+    max_tokens: options.maxTokens ?? (stream ? 8192 : 4096),
+    ...(options.responseFormat && { response_format: options.responseFormat }),
+  };
+
+  if (stream) {
+    payload.stream = true;
+  }
+
+  if (shouldSendReasoningEffort(MODEL)) {
+    payload.reasoning = { effort: 'none' };
+  }
+
+  return payload;
+}
+
 /**
  * 调用 OpenRouter API（非流式）
  */
@@ -105,14 +134,7 @@ export async function callOpenRouter(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 600_000);
 
-  const requestBody = JSON.stringify({
-    model: MODEL,
-    messages,
-    temperature: options.temperature ?? 0.2,
-    max_tokens: options.maxTokens ?? 4096,
-    reasoning: { effort: "none" }, // 禁用思考模式，提高响应速度
-    ...(options.responseFormat && { response_format: options.responseFormat }),
-  });
+  const requestBody = JSON.stringify(buildRequestPayload(messages, options, false));
 
   logStructured('info', 'OpenRouter', '开始调用 API', {
     model: MODEL,
@@ -240,15 +262,7 @@ export async function streamOpenRouter(
     throw new Error('OPENROUTER_API_KEY 环境变量未设置');
   }
 
-  const requestBody = JSON.stringify({
-    model: MODEL,
-    messages,
-    temperature: options.temperature ?? 0.2,
-    max_tokens: options.maxTokens ?? 8192,
-    stream: true,
-    reasoning: { effort: "none" }, // 禁用思考模式，提高响应速度
-    ...(options.responseFormat && { response_format: options.responseFormat }),
-  });
+  const requestBody = JSON.stringify(buildRequestPayload(messages, options, true));
 
   logStructured('info', 'OpenRouter Stream', '开始流式调用', {
     model: MODEL,

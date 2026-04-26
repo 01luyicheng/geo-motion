@@ -179,8 +179,6 @@
   ```
   但 `save-result/route.ts` 第 30-33 行已通过 `checkStoreAvailability()` 提前检查，此处重复检查且抛出未捕获的异常可能导致 500 错误而非预期的 503。
 
-- **[MEDIUM]** `openrouter.ts` 第 113 行：`reasoning: { effort: "none" }` 不是所有模型都支持的参数
-  如果用户通过环境变量切换到不支持此参数的模型，API 调用会失败。
 
 #### 2.3 性能问题
 - **[MEDIUM]** `page.tsx` 第 77-109 行：`useEffect` 中同步调用 `fetch`，在服务端渲染时可能造成瀑布请求
@@ -222,7 +220,6 @@
 #### 5.1 不一致点
 - **日志前缀格式**: `openrouter.ts` 使用 `[Module][ISO时间]`，`analyze/route.ts` 使用 `[analyze][ISO时间]`，`save-result/route.ts` 使用 `[save-result]`，格式不统一
 - **错误响应结构**: 大部分路由使用 `{ success: false, error: { code, message } }`，但 `fix-commands/route.ts` 额外返回 `geogebra` 和 `fixedCommands` 字段在成功时，结构与其他路由不一致
-- **字符串引号**: `openrouter.ts` 中 `reasoning: { effort: "none" }` 使用双引号，项目其他位置多用单引号
 - **注释语言**: 大部分注释为中文，但 `openrouter.ts` 第 390 行的 `/** ── GeoGebra 系统提示` 使用了特殊符号分隔，与其他文件风格不同
 
 #### 5.2 建议
@@ -241,7 +238,6 @@
 | P1 | `useRealtimeGeoGebra.ts` 类型不兼容 | 更新类型定义为 `Step[]` 并添加兼容处理 |
 | P2 | 测试覆盖不足 | 补充 middleware、stream、fix-commands、generate-graphic 测试 |
 | P2 | 代码风格不一致 | 配置 ESLint/Prettier 规则自动统一 |
-| P3 | `reasoning` 参数兼容性 | 根据模型动态决定是否添加此参数 |
 
 ---
 
