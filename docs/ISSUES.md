@@ -6,18 +6,6 @@
 
 ## 中优先级
 
-### M2. 生产环境日志输出过多
-- **文件**: `frontend/src/lib/openrouter.ts`
-- **问题描述**: 大量 `console.log` 输出请求体、响应内容等详细信息，生产环境可能泄露内部实现细节
-- **影响**: 生产服务器日志中可见 API 调用详情
-- **建议**: 用 `process.env.NODE_ENV === 'development'` 控制日志级别
-
-### M3. API 响应运行时验证不足
-- **文件**: `frontend/src/lib/openrouter.ts`
-- **问题描述**: 使用 TypeScript 类型断言而非运行时验证，类型断言仅在编译时有效
-- **影响**: 无法捕获 API 响应结构异常，可能导致运行时错误
-- **建议**: 使用 `zod` 验证 `choices[0].message.content` 结构
-
 ### M4. 外部服务依赖风险
 - **文件**: `frontend/src/components/GeoGebraViewer.tsx`, `frontend/src/lib/openrouter.ts`
 - **问题描述**:
@@ -97,10 +85,12 @@
 - **用户痛点**: 用户不知道系统卡在哪一阶段
 - **改进方案**: 引入阶段状态机；增加阶段事件回调；显示各阶段耗时
 
-### U3. 学习闭环不完整
-- **代码现状**: 命令面板默认折叠；解题思路仅在分析模式可用；无命令解释
+### U3. 学习闭环不完整（部分已修复）
+- **代码现状**:
+  - 命令面板默认折叠
+  - 学习模式、步骤高亮与命令联动、单步解释功能已实现（H3 修复）
 - **用户痛点**: 学生不清楚"这一步命令对应哪条几何结论"
-- **改进方案**: 增加"学习模式"；步骤高亮与命令联动；支持单步解释
+- **改进方案**: 命令面板默认展开，或记住用户上次折叠状态
 
 ### U4. 历史结果不可管理
 - **代码现状**: 无历史列表页，用户只能靠 URL 命中
@@ -146,23 +136,14 @@
 ### 二、新引入问题
 
 #### 2.1 类型错误
+- 见"本轮5次提交交叉审查记录"中的 8 个 TypeScript 类型错误
 
+#### 2.2 逻辑错误（已修复）
+- ~~**[HIGH]** `middleware.ts` 第 62 行：CORS 源检查允许空 origin~~
+  - **状态**: 已修复（H4 修复中已改为 `if (!isAllowedOrigin)`，明确拒绝无 Origin 头的请求）
 
-#### 2.2 逻辑错误
-- **[HIGH]** `middleware.ts` 第 62 行：CORS 源检查允许空 origin
-  ```typescript
-  if (!isAllowedOrigin && origin) {
-  ```
-  这意味着 curl、Postman 等无 Origin 头的工具可以绕过 CSRF 防护直接调用 API。
-
-- **[HIGH]** `ratelimit.ts` 第 138 行：edge 模式下 `request.ip` 可能为 undefined
-  ```typescript
-  return (request as unknown as Record<string, string | undefined>).ip ?? 'unknown';
-  ```
-  如果返回 `'unknown'`，则所有无 IP 的请求共享同一个限流计数器，一个恶意用户即可耗尽所有无 IP 请求的配额。
-
-
-
+- ~~**[HIGH]** `ratelimit.ts` 第 138 行：edge 模式下 `request.ip` 可能为 undefined~~
+  - **状态**: 已修复（H5 修复中已为 `unknown` IP 设置独立限制 3 次/分钟）
 
 #### 2.3 性能问题
 - **[MEDIUM]** `page.tsx` 第 77-109 行：`useEffect` 中同步调用 `fetch`，在服务端渲染时可能造成瀑布请求
@@ -191,8 +172,8 @@
 - `result/[id]/route.test.ts`: 覆盖获取、不存在、过期（3 个测试）
 
 #### 4.2 未覆盖（需补充）
-- `middleware.ts`: 无测试，CORS、CSP、请求体大小限制等逻辑未验证
-- `stream.ts`: 无测试，SSE 解析、错误处理、AbortController 取消未验证
+- ~~`middleware.ts`: 无测试~~ → **已补充**（H1 修复中已添加 middleware.test.ts，19 个测试）
+- ~~`stream.ts`: 无测试~~ → **已补充**（H1 修复中已添加 stream.test.ts，17 个测试）
 - `analyze/route.ts` / `generate-graphic/route.ts`: 仅 `analyze` 有测试，`generate-graphic` 无测试
 - `fix-commands/route.ts`: 无测试，修复逻辑、重试限制、错误处理未验证
 - `page.tsx`: 无组件测试，交互逻辑、状态管理未验证
@@ -228,15 +209,39 @@
 ## 本轮5次提交交叉审查记录（仅记录，不修复）
 
 > 审查日期: 2026-04-26  
-> 审查提交: `572a155`, `719af30`, `3365240`, `f35a96a`, `677fcc3`
+> 审查范围: H1-H5 修复提交  
+> 测试状态: 全部通过（133 tests passed）  
+> 类型检查: **8 个错误**
 
 ### 审查结论
-- 前 5 次提交对应问题均已按预期修复并入库移除。
-- 交叉审查过程中发现 1 条新增阻塞问题，已记录如下，**本轮按要求不修复**。
+- 前 5 次提交对应问题均已按预期修复并已从问题清单移除。
+- 交叉审查过程中发现 **8 个 TypeScript 类型错误**，已记录如下，**本轮按要求不修复**。
+- 未发现修复冲突、逻辑漏洞或新的运行时错误。
 
 ### 新发现问题（待后续修复）
-- **[CRITICAL] 构建类型错误（与本轮提交无直接改动关系）**
-  - **文件**: `frontend/src/components/AnimationControls.tsx`
-  - **现象**: `onStep(-current)` 传入 `number`，但函数签名要求 `1 | -1`，`next build` 阶段类型检查失败。
-  - **影响**: 前端生产构建无法通过。
-  - **建议**: 调整 `onStep` 调用参数为合法字面量，或放宽 `onStep` 类型定义并确保语义正确。
+
+#### [CRITICAL] TypeScript 类型错误（8 个）
+
+**1. `result/[id]/route.test.ts` - 缺少 vitest 导入**
+- **文件**: `frontend/src/app/api/result/[id]/route.test.ts:33`
+- **错误**: `Cannot find name 'afterEach'`
+- **原因**: 未从 `vitest` 导入 `afterEach`
+- **影响**: 类型检查失败
+
+**2. `AnimationControls.tsx` - onStep 参数类型不匹配（2 处）**
+- **文件**: `frontend/src/components/AnimationControls.tsx:76, 135`
+- **错误**: `Argument of type 'number' is not assignable to parameter of type '1 | -1'`
+- **原因**: `onStep(-current)` 和 `onStep(total - 1 - current)` 产生 `number` 类型，但 `onStep` 签名要求字面量联合类型 `1 | -1`
+- **影响**: 前端生产构建无法通过
+
+**3. `stream.test.ts` - 只读属性赋值（4 处）**
+- **文件**: `frontend/src/lib/stream.test.ts:226, 250, 255, 278`
+- **错误**: `Cannot assign to 'NODE_ENV' because it is a read-only property`
+- **原因**: 测试中直接修改 `process.env.NODE_ENV`，但 TypeScript 将其声明为 readonly
+- **影响**: 类型检查失败；测试运行通过但构建失败
+
+**4. `validation.ts` - zod 选项参数错误**
+- **文件**: `frontend/src/lib/validation.ts:94`
+- **错误**: `Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: ... }'`
+- **原因**: 使用了 `required_error` 选项，但当前 zod 版本不支持此参数名（应为 `message` 或其他正确参数）
+- **影响**: 类型检查失败
