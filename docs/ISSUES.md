@@ -161,13 +161,6 @@
   ```
   如果返回 `'unknown'`，则所有无 IP 的请求共享同一个限流计数器，一个恶意用户即可耗尽所有无 IP 请求的配额。
 
-- **[MEDIUM]** `resultStore.ts` 第 36-38 行：容量检查在 `set` 时抛出异常
-  ```typescript
-  if (!this.store.has(id) && this.store.size >= MAX_CAPACITY) {
-    throw new Error('Storage capacity exceeded');
-  }
-  ```
-  但 `save-result/route.ts` 第 30-33 行已通过 `checkStoreAvailability()` 提前检查，此处重复检查且抛出未捕获的异常可能导致 500 错误而非预期的 503。
 
 
 
@@ -223,7 +216,6 @@
 |--------|------|-------------|
 | P0 | `middleware.ts` 允许空 Origin | 移除 `&& origin` 条件，或添加 `!origin` 时拒绝 |
 | P0 | `ratelimit.ts` unknown IP 共享配额 | 为 unknown IP 设置独立限制或拒绝服务 |
-| P1 | `resultStore.ts` 重复容量检查 | 移除 `MemoryResultStore.set` 中的抛出，或统一错误响应 |
 | P2 | 测试覆盖不足 | 补充 middleware、stream、fix-commands、generate-graphic 测试 |
 | P2 | 代码风格不一致 | 配置 ESLint/Prettier 规则自动统一 |
 

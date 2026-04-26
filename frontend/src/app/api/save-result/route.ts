@@ -5,7 +5,8 @@ import { saveResultRequestSchema, safeParseJson } from '@/lib/validation';
 import {
   getResultStore,
   createStoredEntry,
-  checkStoreAvailability,
+  isPersistentStorageAvailable,
+  getStorageUnavailableResponse,
 } from '@/app/api/lib/resultStore';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -45,10 +46,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 检查存储可用性（环境检测 + 容量限制）
-  const storeCheck = checkStoreAvailability();
-  if (!storeCheck.available) {
-    return storeCheck.response!;
+  // 检查持久化存储可用性（容量由 store.set 统一判定）
+  if (!isPersistentStorageAvailable()) {
+    return getStorageUnavailableResponse();
   }
 
   try {
