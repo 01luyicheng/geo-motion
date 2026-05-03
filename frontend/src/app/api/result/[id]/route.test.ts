@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { GET } from './route';
 import { POST as saveResultPost } from '../../save-result/route';
-import { memoryStore } from '@/app/api/lib/resultStore';
+import { resetStore } from '@/app/api/lib/resultStore';
 
 async function createTestResult(result: {
   id: string;
@@ -27,11 +27,11 @@ async function createTestResult(result: {
 
 describe('GET /api/result/[id]', () => {
   beforeEach(() => {
-    memoryStore.clear();
+    resetStore();
   });
 
   afterEach(() => {
-    memoryStore.clear();
+    resetStore();
   });
 
   it('返回存在的分析结果', async () => {

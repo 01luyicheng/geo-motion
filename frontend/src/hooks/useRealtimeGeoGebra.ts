@@ -12,7 +12,7 @@ export function useRealtimeGeoGebra() {
     geogebra: string;
     conditions: string[];
     goal: string;
-    solution: string[] | Step[];
+    solution: Step[];
   } | null>(null);
   
   // 使用 ref 跟踪已处理的内容长度，避免重复解析
@@ -78,20 +78,36 @@ export function useRealtimeGeoGebra() {
       const parsed = JSON.parse(jsonStr);
       
       if (parsed.geogebra && typeof parsed.geogebra === 'string') {
-        // 兼容处理 solution 字段：如果是 Step 对象数组，提取 text 字段
+        // 统一为 Step[]，兼容旧数据字符串数组
         const rawSolution = parsed.solution || [];
-        const normalizedSolution: string[] | Step[] = Array.isArray(rawSolution)
-          ? rawSolution.map((item: unknown) => {
-              if (typeof item === 'string') return item;
+        const normalizedSolution: Step[] = Array.isArray(rawSolution)
+          ? rawSolution.map((item: unknown, index: number) => {
+              if (typeof item === 'string') {
+                return {
+                  text: item,
+                  commandIndices: [],
+                } satisfies Step;
+              }
               if (
                 item &&
                 typeof item === 'object' &&
                 'text' in item &&
                 typeof (item as Record<string, unknown>).text === 'string'
               ) {
-                return item as Step;
+                const step = item as Record<string, unknown>;
+                return {
+                  text: step.text as string,
+                  commandIndices: Array.isArray(step.commandIndices)
+                    ? step.commandIndices.filter((v): v is number => typeof v === 'number')
+                    : [],
+                  explanation:
+                    typeof step.explanation === 'string' ? step.explanation : undefined,
+                } satisfies Step;
               }
-              return String(item);
+              return {
+                text: `步骤 ${index + 1}`,
+                commandIndices: [],
+              } satisfies Step;
             })
           : [];
 

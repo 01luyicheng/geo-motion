@@ -15,7 +15,7 @@ interface StoredEntry {
 
 export interface IResultStore {
   get(id: string): StoredEntry | undefined;
-  set(id: string, entry: StoredEntry): void;
+  set(id: string, entry: StoredEntry): boolean;
   delete(id: string): boolean;
   has(id: string): boolean;
   clear(): void;
@@ -31,12 +31,12 @@ class MemoryResultStore implements IResultStore {
     return this.store.get(id);
   }
 
-  set(id: string, entry: StoredEntry): void {
-    // 防御性容量检查
+  set(id: string, entry: StoredEntry): boolean {
     if (!this.store.has(id) && this.store.size >= MAX_CAPACITY) {
-      throw new Error('Storage capacity exceeded');
+      return false;
     }
     this.store.set(id, entry);
+    return true;
   }
 
   delete(id: string): boolean {
@@ -161,6 +161,14 @@ export function checkStoreAvailability(): { available: boolean; response?: Respo
     return { available: false, response: getCapacityExceededResponse() };
   }
   return { available: true };
+}
+
+/**
+ * 测试专用：重置存储状态
+ * 仅应在测试中使用，生产代码不应调用
+ */
+export function resetStore(): void {
+  memoryStore.clear();
 }
 
 export { memoryStore, EXPIRE_MS, MAX_CAPACITY };

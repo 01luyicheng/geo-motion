@@ -29,6 +29,21 @@ import type { AnalysisResult, Step } from '@/types';
 
 // ─────────────────────────────────────────────────────────────────
 
+function isValidStep(value: unknown): value is Step {
+  if (!value || typeof value !== 'object') return false;
+  const maybeStep = value as {
+    text?: unknown;
+    commandIndices?: unknown;
+    explanation?: unknown;
+  };
+  return (
+    typeof maybeStep.text === 'string' &&
+    Array.isArray(maybeStep.commandIndices) &&
+    maybeStep.commandIndices.every((i) => typeof i === 'number') &&
+    (typeof maybeStep.explanation === 'undefined' || typeof maybeStep.explanation === 'string')
+  );
+}
+
 export default function AnalyzePage({
   params,
 }: {
@@ -128,15 +143,8 @@ function AnalyzeContent({ id }: { id: string }) {
           return { text: s, commandIndices: [] };
         }
         // 运行时验证 Step 结构
-        if (
-          s &&
-          typeof s === 'object' &&
-          'text' in s &&
-          typeof (s as Record<string, unknown>).text === 'string' &&
-          'commandIndices' in s &&
-          Array.isArray((s as Record<string, unknown>).commandIndices)
-        ) {
-          return s as Step;
+        if (isValidStep(s)) {
+          return s;
         }
         // 不符合 Step 结构时回退到字符串处理
         return { text: String(s), commandIndices: [] };
@@ -153,8 +161,9 @@ function AnalyzeContent({ id }: { id: string }) {
 
   // 学习模式：根据高亮的步骤找到对应的命令
   const getCommandIndicesByStepIndex = useCallback((stepIdx: number): number[] => {
-    return parsedSteps[stepIdx]?.commandIndices ?? [];
-  }, [parsedSteps]);
+    const indices = parsedSteps[stepIdx]?.commandIndices ?? [];
+    return indices.filter((idx) => idx >= 0 && idx < commandLines.length);
+  }, [parsedSteps, commandLines]);
 
   // 点击步骤时高亮对应命令
   const handleStepClick = useCallback((stepIdx: number) => {
@@ -249,6 +258,7 @@ function AnalyzeContent({ id }: { id: string }) {
           conditions: result.conditions,
           goal: result.goal,
           retryCount: fixRetryCount,
+          timestamp: Date.now(),
         }),
       });
 
@@ -421,7 +431,7 @@ function AnalyzeContent({ id }: { id: string }) {
               title={studyMode ? '退出学习模式' : '进入学习模式'}
             >
               <GraduationCap className="h-4 w-4" />
-              <span className="hidden sm:inline">{studyMode ? '学习模式' : '学习模式'}</span>
+              <span className="hidden sm:inline">{studyMode ? '退出学习' : '学习模式'}</span>
             </button>
           )}
 

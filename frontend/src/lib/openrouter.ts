@@ -9,6 +9,7 @@ import { openRouterResponseSchema, openRouterStreamChunkSchema } from './validat
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 // 从环境变量读取，支持运行时切换模型（设置 OPENROUTER_MODEL 环境变量）
 const MODEL = process.env.OPENROUTER_MODEL ?? 'qwen/qwen3-vl-235b-a22b-instruct';
+const REASONING_EFFORT_SUPPORTED_MODELS = ['qwen/qwen3-vl-235b-a22b-instruct'];
 
 export interface OpenRouterMessage {
   role: 'system' | 'user' | 'assistant';
@@ -88,6 +89,34 @@ function logStructured(
   }
 }
 
+function shouldSendReasoningEffort(model: string): boolean {
+  return REASONING_EFFORT_SUPPORTED_MODELS.includes(model);
+}
+
+function buildRequestPayload(
+  messages: OpenRouterMessage[],
+  options: OpenRouterOptions,
+  stream: boolean
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    model: MODEL,
+    messages,
+    temperature: options.temperature ?? 0.2,
+    max_tokens: options.maxTokens ?? (stream ? 8192 : 4096),
+    ...(options.responseFormat && { response_format: options.responseFormat }),
+  };
+
+  if (stream) {
+    payload.stream = true;
+  }
+
+  if (shouldSendReasoningEffort(MODEL)) {
+    payload.reasoning = { effort: 'none' };
+  }
+
+  return payload;
+}
+
 /**
  * 调用 OpenRouter API（非流式）
  */
@@ -105,14 +134,7 @@ export async function callOpenRouter(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 600_000);
 
-  const requestBody = JSON.stringify({
-    model: MODEL,
-    messages,
-    temperature: options.temperature ?? 0.2,
-    max_tokens: options.maxTokens ?? 4096,
-    reasoning: { effort: "none" }, // 禁用思考模式，提高响应速度
-    ...(options.responseFormat && { response_format: options.responseFormat }),
-  });
+  const requestBody = JSON.stringify(buildRequestPayload(messages, options, false));
 
   logStructured('info', 'OpenRouter', '开始调用 API', {
     model: MODEL,
@@ -240,15 +262,7 @@ export async function streamOpenRouter(
     throw new Error('OPENROUTER_API_KEY 环境变量未设置');
   }
 
-  const requestBody = JSON.stringify({
-    model: MODEL,
-    messages,
-    temperature: options.temperature ?? 0.2,
-    max_tokens: options.maxTokens ?? 8192,
-    stream: true,
-    reasoning: { effort: "none" }, // 禁用思考模式，提高响应速度
-    ...(options.responseFormat && { response_format: options.responseFormat }),
-  });
+  const requestBody = JSON.stringify(buildRequestPayload(messages, options, true));
 
   logStructured('info', 'OpenRouter Stream', '开始流式调用', {
     model: MODEL,
@@ -464,8 +478,27 @@ export const GENERATE_SYSTEM_PROMPT = `你是一位精通 GeoGebra 的数学教�
 {
   "geogebra": "<多行GeoGebra命令，用\\n分隔>",
   "conditions": ["题目中提取的已知条件1", "..."],
-  "goal": "题目求解目标"
+  "goal": "题目求解目标",
+  "solution": [
+    {
+      "text": "步骤1描述",
+      "commandIndices": [0, 1],
+      "explanation": "该步骤的几何原理说明"
+    },
+    {
+      "text": "步骤2描述",
+      "commandIndices": [2],
+      "explanation": "该步骤的几何原理说明"
+    }
+  ]
 }
+
+【solution 字段要求】
+1. 提供 2-5 条简洁步骤，聚焦思路，不写冗长推导
+2. 每个步骤必须包含 commandIndices 字段，表示该步骤对应哪些 GeoGebra 命令索引（0-based）
+3. 每个步骤必须包含 explanation 字段，说明该步骤的几何原理和数学依据
+4. 如题目信息不足，可返回空数组 []
+5. commandIndices 必须准确对应 geogebra 字段中的命令行索引
 
 【命令示例】
 - 点：A = (0, 0)

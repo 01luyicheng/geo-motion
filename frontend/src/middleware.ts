@@ -58,8 +58,8 @@ export function middleware(request: NextRequest) {
 
   // ── 2. API 路由安全校验 ────────────────────────────────────
   if (request.nextUrl.pathname.startsWith('/api/')) {
-    // 拒绝非允许来源的请求（防范 CSRF）
-    if (!isAllowedOrigin && origin) {
+    // 拒绝非允许来源的请求（防范 CSRF），包括无 Origin 头的请求
+    if (!isAllowedOrigin) {
       return new NextResponse(
         JSON.stringify({
           success: false,
@@ -103,7 +103,18 @@ export function middleware(request: NextRequest) {
     }
 
     // ── 3. 正常请求：添加安全头和速率限制头 ───────────────────
-    const response = NextResponse.next();
+    // 对 SSE 路由，将限流头写入请求头以便路由层传递到 SSE 响应
+    const isSseRoute = route === '/api/analyze' || route === '/api/generate-graphic';
+    let response: NextResponse;
+    if (isSseRoute) {
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set('X-RateLimit-Limit', String(result.limit));
+      requestHeaders.set('X-RateLimit-Remaining', String(result.remaining));
+      requestHeaders.set('X-RateLimit-Reset', String(result.resetTime));
+      response = NextResponse.next({ request: { headers: requestHeaders } });
+    } else {
+      response = NextResponse.next();
+    }
 
     setCorsHeaders(response, isAllowedOrigin ? origin : ALLOWED_ORIGINS[0]);
     setSecurityHeaders(response);

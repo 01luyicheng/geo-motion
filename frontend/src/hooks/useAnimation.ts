@@ -16,7 +16,7 @@ interface UseAnimationReturn {
   handlePlay: () => void;
   handlePause: () => void;
   handleReset: () => void;
-  handleStep: (delta: 1 | -1) => void;
+  handleStep: (delta: number) => void;
   handleSpeedChange: (ms: number) => void;
 }
 
@@ -94,7 +94,7 @@ export function useAnimation({ commandCount }: UseAnimationParams): UseAnimation
   }, [stopAnimation]);
 
   const handleStep = useCallback(
-    (delta: 1 | -1) => {
+    (delta: number) => {
       stopAnimation();
       setAnimationMode(true);
       setAnimState('paused');
