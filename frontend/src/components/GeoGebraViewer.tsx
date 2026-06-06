@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useId } from 'react';
 import { cn } from '@/lib/utils';
 import type { GgbAppletAPI } from '@/types';
 
@@ -9,6 +9,21 @@ import type { GgbAppletAPI } from '@/types';
  */
 function getGgbAppletById(id: string): GgbAppletAPI | undefined {
   return (window as unknown as Record<string, GgbAppletAPI | undefined>)[id];
+}
+
+/**
+ * 统一清理 GeoGebra applet 实例：销毁并移除全局引用，避免内存泄漏
+ */
+function cleanupApplet(id: string): void {
+  const api = getGgbAppletById(id);
+  if (api && typeof api.remove === 'function') {
+    try {
+      api.remove();
+    } catch {
+      // 忽略清理错误
+    }
+  }
+  delete (window as unknown as Record<string, unknown>)[id];
 }
 
 /** 命令执行错误信息 */
@@ -48,71 +63,63 @@ interface GeoGebraViewerProps {
 /** 脚本加载超时时间（毫秒） */
 const SCRIPT_LOAD_TIMEOUT = 30000;
 
-let ggbScriptLoaded = false;
-let ggbScriptLoading = false;
-let ggbScriptError = false;
-const ggbReadyCallbacks: ((success: boolean) => void)[] = [];
+/** 全局脚本标签管理：只插入一次 script 标签 */
+function ensureGlobalScriptTag(): void {
+  const existing = document.querySelector<HTMLScriptElement>(
+    'script[src="https://www.geogebra.org/apps/deployggb.js"]'
+  );
+  if (existing) return;
 
-/** 异步加载 GeoGebra 脚本，确保全局只加载一次 */
-function loadGeoGebraScript(): Promise<void> {
+  const script = document.createElement('script');
+  script.src = 'https://www.geogebra.org/apps/deployggb.js';
+  script.async = true;
+  document.head.appendChild(script);
+}
+
+/** 异步加载 GeoGebra 脚本 */
+function loadGeoGebraScript(
+  signal: AbortSignal,
+  onStateChange?: (state: 'loading' | 'loaded' | 'error') => void
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    // 如果脚本已加载成功，直接返回
-    if (ggbScriptLoaded) {
+    // 如果全局已经加载成功（window.GGBApplet 存在）
+    if (typeof window.GGBApplet !== 'undefined') {
+      onStateChange?.('loaded');
       resolve();
       return;
     }
 
-    // 如果脚本之前加载失败，直接拒绝
-    if (ggbScriptError) {
-      reject(new Error('GeoGebra 脚本加载失败，请刷新页面重试'));
-      return;
-    }
+    // 确保全局 script 标签已插入
+    ensureGlobalScriptTag();
 
-    // 添加回调到队列
-    ggbReadyCallbacks.push((success) => {
-      if (success) {
-        resolve();
-      } else {
-        reject(new Error('GeoGebra 脚本加载失败'));
+    onStateChange?.('loading');
+
+    const checkInterval = 100;
+    const maxChecks = SCRIPT_LOAD_TIMEOUT / checkInterval;
+    let checks = 0;
+
+    const intervalId = setInterval(() => {
+      if (signal.aborted) {
+        clearInterval(intervalId);
+        onStateChange?.('error');
+        reject(new Error('GeoGebra 脚本加载已取消'));
+        return;
       }
-    });
 
-    // 如果正在加载中，等待结果
-    if (ggbScriptLoading) return;
+      if (typeof window.GGBApplet !== 'undefined') {
+        clearInterval(intervalId);
+        onStateChange?.('loaded');
+        resolve();
+        return;
+      }
 
-    ggbScriptLoading = true;
-
-    const script = document.createElement('script');
-    script.src = 'https://www.geogebra.org/apps/deployggb.js';
-    script.async = true;
-
-    // 设置超时定时器
-    const timeoutId = setTimeout(() => {
-      ggbScriptError = true;
-      ggbScriptLoading = false;
-      ggbReadyCallbacks.forEach((cb) => cb(false));
-      ggbReadyCallbacks.length = 0;
-      console.error('[GeoGebra] 脚本加载超时');
-    }, SCRIPT_LOAD_TIMEOUT);
-
-    script.onload = () => {
-      clearTimeout(timeoutId);
-      ggbScriptLoaded = true;
-      ggbScriptLoading = false;
-      ggbReadyCallbacks.forEach((cb) => cb(true));
-      ggbReadyCallbacks.length = 0;
-    };
-
-    script.onerror = () => {
-      clearTimeout(timeoutId);
-      ggbScriptError = true;
-      ggbScriptLoading = false;
-      ggbReadyCallbacks.forEach((cb) => cb(false));
-      ggbReadyCallbacks.length = 0;
-      console.error('[GeoGebra] 脚本加载失败');
-    };
-
-    document.head.appendChild(script);
+      checks++;
+      if (checks >= maxChecks) {
+        clearInterval(intervalId);
+        onStateChange?.('error');
+        reject(new Error('GeoGebra 脚本加载超时'));
+      }
+    }, checkInterval);
   });
 }
 
@@ -130,14 +137,30 @@ export function GeoGebraViewer({
 }: GeoGebraViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const appletInstanceRef = useRef<GgbAppletAPI | null>(null);
-  const appletIdRef = useRef(`ggb_${Math.random().toString(36).slice(2, 8)}`);
+  // 使用 useId 生成稳定的 ID，避免 SSR/hydration 不匹配（替代 Math.random()）
+  const reactId = useId();
+  // 每次 initApplet 调用都递增的实例 ID，确保新旧实例使用不同 ID（修复竞态）
+  const instanceIdRef = useRef(0);
+  const appletIdRef = useRef(`ggb_${reactId.replace(/:/g, '')}_0`);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolvedWidth, setResolvedWidth] = useState(width ?? 0);
 
+  // 脚本加载状态由组件实例独立管理（修复全局状态污染）
+  const abortControllerRef = useRef<AbortController | null>(null);
+  // 实例世代计数器：防止旧实例的回调覆盖新实例状态
+  const instanceGenerationRef = useRef(0);
+
   // 使用 ref 跟踪最新的 onReady 回调，避免 initApplet 依赖它（Issue #16）
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
+
+  // 使用 ref 跟踪最新的 onCommandError / onCommandComplete 回调
+  // 避免命令执行 effect 因回调引用变化而无限循环
+  const onCommandErrorRef = useRef(onCommandError);
+  onCommandErrorRef.current = onCommandError;
+  const onCommandCompleteRef = useRef(onCommandComplete);
+  onCommandCompleteRef.current = onCommandComplete;
 
   // 追踪已执行的命令索引，用于增量执行
   const lastExecutedIndexRef = useRef(-1);
@@ -155,48 +178,94 @@ export function GeoGebraViewer({
       setResolvedWidth(width);
       return;
     }
-    
+
     const updateWidth = () => {
       const el = containerRef.current?.parentElement;
       if (el) {
         setResolvedWidth(el.clientWidth || 700);
       }
     };
-    
+
     updateWidth();
-    
-    // 添加窗口大小变化监听
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
+
+    // 添加窗口大小变化监听（节流：每 200ms 最多触发一次，减少频繁 resize 导致的 applet 重建）
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+    const throttledUpdateWidth = () => {
+      if (resizeTimeout) return;
+      resizeTimeout = setTimeout(() => {
+        resizeTimeout = null;
+        updateWidth();
+      }, 200);
+    };
+    window.addEventListener('resize', throttledUpdateWidth);
+    return () => {
+      window.removeEventListener('resize', throttledUpdateWidth);
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+    };
   }, [width]);
 
   const initApplet = useCallback(async () => {
     if (!containerRef.current || resolvedWidth === 0) return;
 
+    // 重置加载和错误状态，确保旧内容隐藏、加载指示器显示
+    setLoaded(false);
+    setError(null);
+
+    // 取消之前的加载请求
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    // 新实例世代，旧实例的回调将被忽略
+    const generation = ++instanceGenerationRef.current;
+    // 递增实例 ID，确保新旧实例使用不同 ID（修复 useId 不变导致的竞态）
+    const instanceId = ++instanceIdRef.current;
+    // 先清理旧实例（使用旧的 appletIdRef.current）
+    cleanupApplet(appletIdRef.current);
+    appletInstanceRef.current = null;
+    // 再生成新 ID
+    const currentId = `ggb_${reactId.replace(/:/g, '')}_${instanceId}`;
+    appletIdRef.current = currentId;
+
     try {
-      await loadGeoGebraScript();
+      await loadGeoGebraScript(controller.signal);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'GeoGebra 加载失败');
+      // 检查世代：如果已经发起了新实例，忽略旧错误
+      if (generation !== instanceGenerationRef.current) return;
+      if (!controller.signal.aborted) {
+        setError(err instanceof Error ? err.message : 'GeoGebra 加载失败');
+      }
       return;
     }
+
+    // 再次检查世代，防止脚本加载期间组件已重新初始化
+    if (generation !== instanceGenerationRef.current) return;
 
     const ggbApplet = new window.GGBApplet(
       {
         appName: 'classic',           // 改为 classic 模式，避免左侧空白区域
         width: resolvedWidth,
         height,
-        showToolBar: false,           // 隐藏工具栏
+        showToolBar: showToolbar,     // 使用传入的 showToolbar prop
         showAlgebraInput: false,
         showMenuBar: false,
         enableLabelDrags: false,      // 禁止拖动标签
         enableShiftDragZoom: true,    // 允许 Shift+拖动 缩放
         showResetIcon: true,
         language: 'zh',
-        id: appletIdRef.current,
+        id: currentId,
         showErrorDialogs: false,      // 禁用错误弹窗
         appletOnLoad: () => {
+          // 检查世代：确保这是最新实例的回调
+          if (generation !== instanceGenerationRef.current) {
+            // 旧实例的回调，清理它
+            cleanupApplet(currentId);
+            return;
+          }
           // GeoGebra API 通过全局 window[id] 暴露
-          const api = getGgbAppletById(appletIdRef.current);
+          const api = getGgbAppletById(currentId);
           appletInstanceRef.current = api ?? null;
           setLoaded(true);
           setError(null);
@@ -214,6 +283,15 @@ export function GeoGebraViewer({
   useEffect(() => {
     if (resolvedWidth === 0) return;
     void initApplet();
+
+    return () => {
+      // 组件卸载时递增世代，确保旧实例的回调被忽略（修复竞态）
+      instanceGenerationRef.current += 1;
+      // 取消正在进行的脚本加载并销毁 applet 实例
+      abortControllerRef.current?.abort();
+      cleanupApplet(appletIdRef.current);
+      appletInstanceRef.current = null;
+    };
   }, [initApplet]);
 
   // 执行命令 - 增量执行优化，并捕获错误
@@ -257,12 +335,17 @@ export function GeoGebraViewer({
         } else {
           // 命令执行失败（返回 false）
           executionResult.failedCount++;
+          errorCountRef.current += 1;
           executionResult.errors.push({
             command: trimmedCmd,
             error: '命令执行失败（GeoGebra 返回 false）',
             index,
           });
-          console.warn('[GeoGebra] 命令执行失败:', trimmedCmd);
+          if (errorCountRef.current <= maxErrorCount) {
+            console.warn('[GeoGebra] 命令执行失败:', trimmedCmd);
+          } else if (errorCountRef.current === maxErrorCount + 1) {
+            console.warn('[GeoGebra] 错误过多，不再显示详细日志');
+          }
           return false;
         }
       } catch (err) {
@@ -289,9 +372,9 @@ export function GeoGebraViewer({
       executionResult.success = executionResult.failedCount === 0;
       if (executionResult.failedCount > 0 && reportedErrorForCommandsRef.current !== commands) {
         reportedErrorForCommandsRef.current = commands;
-        onCommandError?.(executionResult);
+        onCommandErrorRef.current?.(executionResult);
       }
-      onCommandComplete?.(executionResult);
+      onCommandCompleteRef.current?.(executionResult);
     };
 
     if (!animationMode || commandIndex === -1) {
@@ -326,7 +409,7 @@ export function GeoGebraViewer({
       }
       // targetIndex === lastIndex 时无需操作
     }
-  }, [loaded, commands, animationMode, commandIndex, onCommandError, onCommandComplete]);
+  }, [loaded, commands, animationMode, commandIndex]);
 
   return (
     <div className={cn('ggb-container relative w-full', className)}>
@@ -340,7 +423,6 @@ export function GeoGebraViewer({
           <button
             onClick={() => {
               setError(null);
-              ggbScriptError = false;
               initApplet();
             }}
             className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90"

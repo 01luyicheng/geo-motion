@@ -96,6 +96,8 @@ export interface GgbAppletAPI {
   isVisible: (objName: string) => boolean;
   setColor: (objName: string, red: number, green: number, blue: number) => void;
   setLabelVisible: (objName: string, visible: boolean) => void;
+  // 销毁
+  remove: () => void;
 }
 
 // 动画状态
