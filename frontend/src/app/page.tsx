@@ -26,25 +26,11 @@ function normalizeSolution(
   solution: Array<string | { text: string; commandIndices: number[]; explanation?: string }> | undefined
 ): AnalysisResult['solution'] {
   if (!solution || solution.length === 0) return [];
-  if (solution.every((item) => typeof item === 'string')) {
-    return solution as string[];
-  }
-  return solution.map((item) => {
-    if (typeof item === 'string') return item;
-    return {
-      text: item.text,
-      commandIndices: item.commandIndices,
-      explanation: item.explanation,
-    };
-  }).map((item) => {
-    if (typeof item === 'string') {
-      return {
-        text: item,
-        commandIndices: [],
-      };
-    }
-    return item;
-  });
+  return solution.map((item) =>
+    typeof item === 'string'
+      ? { text: item, commandIndices: [] }
+      : { text: item.text, commandIndices: item.commandIndices, explanation: item.explanation }
+  );
 }
 
 // ── 首页内容（需要 useSearchParams，放入 Suspense）──────────────
@@ -75,6 +61,9 @@ function HomeContent() {
   const [retryCount, setRetryCount] = useState(0);
   const MAX_RETRIES = 3;
 
+  // 使用 ref 跟踪最新的验证错误，避免重试循环中的闭包陷阱
+  const latestValidationErrorRef = useRef('');
+
   const abortCurrentRequest = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -102,42 +91,47 @@ function HomeContent() {
   const validateGeoGebraCommands = useCallback((commands: string): { valid: boolean; errors: string[] } => {
     const errors: string[] = [];
     const lines = commands.split('\n').filter(line => line.trim());
-    
+
     // 基本语法检查
     lines.forEach((line, index) => {
       const trimmed = line.trim();
-      
+
       // 检查空括号
       if (trimmed.match(/\(\s*\)/)) {
         errors.push(`第 ${index + 1} 行: 空括号`);
       }
-      
+
       // 检查未闭合的括号
       const openParens = (trimmed.match(/\(/g) || []).length;
       const closeParens = (trimmed.match(/\)/g) || []).length;
       if (openParens !== closeParens) {
         errors.push(`第 ${index + 1} 行: 括号不匹配`);
       }
-      
+
       // 检查无效字符
       if (trimmed.match(/[\u4e00-\u9fa5]/)) {
         errors.push(`第 ${index + 1} 行: 包含中文字符`);
       }
-      
-      // 检查命令格式 (基本命令应该以字母开头)
+
+      // 检查命令格式 (GeoGebra 命令必须以字母或下划线开头，支持中文变量名)
       if (!trimmed.match(/^[\p{L}_]/u)) {
-        errors.push(`第 ${index + 1} 行: 命令格式错误`);
+        errors.push(`第 ${index + 1} 行: 命令格式错误（必须以字母或下划线开头）`);
       }
     });
-    
+
     return { valid: errors.length === 0, errors };
   }, []);
 
-  // 处理分析请求，包含语法验证和重试
-  const handleAnalyze = useCallback(async () => {
-    if (!image) return;
-    abortCurrentRequest();
-
+  /**
+   * 通用的流式请求处理逻辑，提取 handleAnalyze 和 handleGenerate 的公共部分
+   */
+  const processStreamWithRetry = useCallback(async <T extends { geogebra: string }>(
+    url: string,
+    requestBody: Record<string, unknown>,
+    parseResult: (parsed: ReturnType<typeof parseVlmJson<typeof vlmOutputSchema>>) => T,
+    buildResult: (parsed: T) => AnalysisResult,
+    redirectPath: string
+  ) => {
     const currentController = new AbortController();
     abortControllerRef.current = currentController;
 
@@ -149,44 +143,50 @@ function HomeContent() {
     resetRealtimeGeoGebra();
     setShowRealtimePreview(true);
     setRetryCount(0);
+    // 新请求开始时清空旧错误，避免误导 AI
+    latestValidationErrorRef.current = '';
 
     let currentRetry = 0;
-    let latestValidationError = validationError ?? '';
     try {
       while (currentRetry <= MAX_RETRIES) {
+        // 检查是否已被外部取消（修复竞态：用户取消后 while 循环仍继续的问题）
+        if (currentController.signal.aborted) {
+          return;
+        }
+
         try {
           const result = await streamRequest(
-            '/api/analyze',
-            { image, retryCount: currentRetry, previousError: latestValidationError || undefined, timestamp: Date.now() },
+            url,
+            { ...requestBody, retryCount: currentRetry, previousError: latestValidationErrorRef.current || undefined },
             appendChunk,
             { signal: currentController.signal }
           );
 
-          if (result.error) {
-            throw new Error(result.error);
+          // streamRequest 返回后再次检查是否已被取消（修复竞态）
+          if (currentController.signal.aborted) {
+            return;
           }
 
+          // 如果 result 包含业务错误，优先尝试解析内容而不是直接抛出
           let parsed: ReturnType<typeof parseVlmJson<typeof vlmOutputSchema>>;
           try {
             parsed = parseVlmJson(result.content, vlmOutputSchema);
           } catch {
-            console.error('[analyze] JSON 解析失败，原始内容:', result.content);
+            console.error(`[${url}] JSON 解析失败，原始内容:`, result.content);
             throw new Error('AI 返回格式错误，请重试');
           }
 
-          if (!parsed.geogebra || !parsed.conditions || !parsed.goal) {
-            throw new Error('未能从图片中识别几何图形');
-          }
+          const data = parseResult(parsed);
 
           // 语法验证
           setIsValidating(true);
-          const validation = validateGeoGebraCommands(parsed.geogebra);
+          const validation = validateGeoGebraCommands(data.geogebra);
           setIsValidating(false);
 
           if (!validation.valid && currentRetry < MAX_RETRIES) {
             // 有语法错误，需要重试
             const errorText = validation.errors.join('; ');
-            latestValidationError = errorText;
+            latestValidationErrorRef.current = errorText;
             setValidationError(errorText);
             setRetryCount(currentRetry + 1);
             currentRetry++;
@@ -202,17 +202,11 @@ function HomeContent() {
           }
 
           // 验证通过，保存并跳转
-          const analysisResult: AnalysisResult = {
-            id: `analysis_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            geogebra: parsed.geogebra,
-            conditions: parsed.conditions,
-            goal: parsed.goal,
-            solution: normalizeSolution(parsed.solution),
-            createdAt: new Date().toISOString(),
-          };
+          const analysisResult = buildResult(data);
 
           const id = generateId();
           setStoredResult(`analysis:${id}`, analysisResult);
+          setLoading(false);
 
           // 异步保存到服务端，使分享链接可跨设备使用
           try {
@@ -224,7 +218,7 @@ function HomeContent() {
             if (saveRes.ok) {
               const saveData = (await saveRes.json()) as { success: boolean; data?: { id: string } };
               if (saveData.success && saveData.data?.id) {
-                router.push(`/analyze/${saveData.data.id}?type=analyze`);
+                router.push(`${redirectPath}/${saveData.data.id}`);
                 return;
               }
             }
@@ -233,12 +227,14 @@ function HomeContent() {
             console.warn('[page] 服务端保存失败，使用本地 ID');
           }
 
-          router.push(`/analyze/${id}?type=analyze`);
+          router.push(`${redirectPath}/${id}`);
           return; // 成功，退出函数
 
         } catch (err) {
           if (err instanceof Error && err.name === 'AbortError') {
-            if (abortControllerRef.current !== currentController) {
+            // 统一使用本地变量判断，避免多次读取 ref 的不一致
+            const isLatestRequest = abortControllerRef.current === currentController;
+            if (!isLatestRequest) {
               return;
             }
             setCancelNotice('已取消本次请求，你可以调整输入后重新开始。');
@@ -252,154 +248,74 @@ function HomeContent() {
             setLoading(false);
             return;
           }
+          // 非 AbortError 异常重试时清空流内容，避免旧内容与新内容混合
+          clearStreamContent();
           currentRetry++;
           setRetryCount(currentRetry);
         }
       }
     } finally {
-      if (abortControllerRef.current === currentController) {
+      // 统一使用本地变量判断，避免 finally 块中读取 ref 的竞态
+      const isLatestRequest = abortControllerRef.current === currentController;
+      if (isLatestRequest) {
         abortControllerRef.current = null;
       }
     }
 
-    if (abortControllerRef.current === null) {
-      setLoading(false);
-    }
-  }, [image, abortCurrentRequest, router, validateGeoGebraCommands, validationError, clearStreamContent, resetRealtimeGeoGebra, appendChunk]);
+    // setLoading(false) 已在成功/错误/取消路径中处理，此处无需重复
+  }, [router, validateGeoGebraCommands, clearStreamContent, resetRealtimeGeoGebra, appendChunk]);
+
+  // 处理分析请求，包含语法验证和重试
+  const handleAnalyze = useCallback(async () => {
+    if (!image) return;
+    abortCurrentRequest();
+
+    await processStreamWithRetry(
+      '/api/analyze',
+      { image, timestamp: Date.now() },
+      (parsed) => {
+        if (!parsed.geogebra || !parsed.conditions || !parsed.goal) {
+          throw new Error('未能从图片中识别几何图形');
+        }
+        return parsed;
+      },
+      (parsed) => ({
+        id: `analysis_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        geogebra: parsed.geogebra,
+        conditions: parsed.conditions ?? [],
+        goal: parsed.goal ?? '',
+        solution: normalizeSolution(parsed.solution),
+        createdAt: new Date().toISOString(),
+      }),
+      '/analyze'
+    );
+  }, [image, abortCurrentRequest, processStreamWithRetry]);
 
   // 处理生成请求，包含语法验证和重试
   const handleGenerate = useCallback(async () => {
     if (!text.trim()) return;
     abortCurrentRequest();
 
-    const currentController = new AbortController();
-    abortControllerRef.current = currentController;
-
-    setLoading(true);
-    setError(null);
-    setCancelNotice(null);
-    setValidationError(null);
-    clearStreamContent();
-    resetRealtimeGeoGebra();
-    setShowRealtimePreview(true);
-    setRetryCount(0);
-
-    let currentRetry = 0;
-    let latestValidationError = validationError ?? '';
-    try {
-      while (currentRetry <= MAX_RETRIES) {
-        try {
-          const result = await streamRequest(
-            '/api/generate-graphic',
-            { text, sketch: sketch ?? undefined, retryCount: currentRetry, previousError: latestValidationError || undefined, timestamp: Date.now() },
-            appendChunk,
-            { signal: currentController.signal }
-          );
-
-          if (result.error) {
-            throw new Error(result.error);
-          }
-
-          let parsed: ReturnType<typeof parseVlmJson<typeof vlmOutputSchema>>;
-          try {
-            parsed = parseVlmJson(result.content, vlmOutputSchema);
-          } catch {
-            console.error('[generate-graphic] JSON 解析失败，原始内容:', result.content);
-            throw new Error('AI 返回格式错误，请重试');
-          }
-
-          if (!parsed.geogebra) {
-            throw new Error('图形生成失败，请检查题目描述');
-          }
-
-          // 语法验证
-          setIsValidating(true);
-          const validation = validateGeoGebraCommands(parsed.geogebra);
-          setIsValidating(false);
-
-          if (!validation.valid && currentRetry < MAX_RETRIES) {
-            // 有语法错误，需要重试
-            const errorText = validation.errors.join('; ');
-            latestValidationError = errorText;
-            setValidationError(errorText);
-            setRetryCount(currentRetry + 1);
-            currentRetry++;
-            clearStreamContent();
-            continue; // 继续循环重试
-          }
-
-          if (!validation.valid && currentRetry >= MAX_RETRIES) {
-            // 达到最大重试次数，显示错误但不跳转
-            setValidationError(`语法错误 (已达到最大重试次数): ${validation.errors.join('; ')}`);
-            setLoading(false);
-            return;
-          }
-
-          // 验证通过，保存并跳转
-          const graphicResult: AnalysisResult = {
-            id: `graphic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            geogebra: parsed.geogebra,
-            conditions: parsed.conditions ?? [],
-            goal: parsed.goal ?? '',
-            solution: [],
-            createdAt: new Date().toISOString(),
-          };
-
-          const id = generateId();
-          setStoredResult(`analysis:${id}`, graphicResult);
-
-          // 异步保存到服务端，使分享链接可跨设备使用
-          try {
-            const saveRes = await fetch('/api/save-result', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ result: graphicResult }),
-            });
-            if (saveRes.ok) {
-              const saveData = (await saveRes.json()) as { success: boolean; data?: { id: string } };
-              if (saveData.success && saveData.data?.id) {
-                router.push(`/analyze/${saveData.data.id}?type=generate`);
-                return;
-              }
-            }
-          } catch {
-            // 服务端保存失败时，fallback 到本地 ID
-            console.warn('[page] 服务端保存失败，使用本地 ID');
-          }
-
-          router.push(`/analyze/${id}?type=generate`);
-          return; // 成功，退出函数
-
-        } catch (err) {
-          if (err instanceof Error && err.name === 'AbortError') {
-            if (abortControllerRef.current !== currentController) {
-              return;
-            }
-            setCancelNotice('已取消本次请求，你可以调整输入后重新开始。');
-            setLoading(false);
-            setShowRealtimePreview(false);
-            return;
-          }
-
-          if (currentRetry >= MAX_RETRIES) {
-            setError(err instanceof Error ? err.message : '未知错误');
-            setLoading(false);
-            return;
-          }
-          currentRetry++;
-          setRetryCount(currentRetry);
+    await processStreamWithRetry(
+      '/api/generate-graphic',
+      { text, sketch: sketch ?? undefined, timestamp: Date.now() },
+      (parsed) => {
+        if (!parsed.geogebra) {
+          throw new Error('图形生成失败，请检查题目描述');
         }
-      }
-    } finally {
-      if (abortControllerRef.current === currentController) {
-        abortControllerRef.current = null;
-      }
-    }
-
-    if (abortControllerRef.current === null) {
-      setLoading(false);
-    }
-  }, [text, sketch, abortCurrentRequest, router, validateGeoGebraCommands, validationError, clearStreamContent, resetRealtimeGeoGebra, appendChunk]);
+        return parsed;
+      },
+      (parsed) => ({
+        id: `graphic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        geogebra: parsed.geogebra,
+        conditions: parsed.conditions ?? [],
+        goal: parsed.goal ?? '',
+        solution: [],
+        createdAt: new Date().toISOString(),
+      }),
+      '/analyze'
+    );
+  }, [text, sketch, abortCurrentRequest, processStreamWithRetry]);
 
   // 键盘快捷键：Ctrl/Cmd + Enter 提交
   useEffect(() => {
