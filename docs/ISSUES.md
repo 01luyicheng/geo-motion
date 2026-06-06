@@ -42,19 +42,34 @@
 - **影响**: 逻辑冗余，增加维护成本
 - **建议**: 移除 `result.id` 字段，下载时动态生成文件名
 
-### L4. handleSpeedChange 重复定时器逻辑
+### ~~L4. handleSpeedChange 重复定时器逻辑~~ ✅ 已修复
 - **文件**: `frontend/src/hooks/useAnimation.ts`
 - **问题描述**: `handleSpeedChange` 复制了 `handlePlay` 中的定时器逻辑
-- **影响**: 代码重复，修改需同步两处
-- **建议**: 提取 `startInterval(speed, startFrom)` 辅助函数消除重复
+- **状态**: 已修复
+- **修复日期**: 2026-04-30
+- **修复内容**: 提取 `startIntervalFrom(startIndex, speed)` 辅助函数，统一封装 interval 创建、世代检查与状态设置，消除 `handlePlay` 与 `handleSpeedChange` 中的重复代码
 
-### L5. AI 请求取消后 UX 体验不足
+### L4. useAnimation.ts 竞态条件防护 ✅ 已修复
+- **文件**: `frontend/src/hooks/useAnimation.ts`
+- **问题描述**: 快速切换播放/暂停/速度或连续点击播放时，可能创建多个重叠的 interval/timer，导致 cmdIndex 异常跳动或状态不一致
+- **状态**: 已修复
+- **修复日期**: 2026-04-30
+- **修复内容**: 引入 `generationRef` 世代计数器，每次停止动画时递增世代号；interval 和 timeout 回调中检查世代号，若与当前世代不符则立即清除并退出，确保旧定时器不会干扰新状态
+
+### L5. useRealtimeGeoGebra.ts Unicode 支持 ✅ 已修复
+- **文件**: `frontend/src/hooks/useRealtimeGeoGebra.ts`
+- **问题描述**: GeoGebra 命令验证正则仅支持 ASCII 字母，无法识别希腊字母（如 `α = Angle(A, B, C)`）等非 ASCII 标识符
+- **状态**: 已修复
+- **修复日期**: 2026-04-30
+- **修复内容**: 命令验证正则改用 Unicode 属性转义 `\p{L}` 和 `\p{N}`（如 `/^[\p{L}_][\p{L}\p{N}_]*\s*=\s*.+/u`），支持希腊字母、中文等 Unicode 标识符作为变量名
+
+### L6. AI 请求取消后 UX 体验不足
 - **文件**: `frontend/src/app/page.tsx`, `frontend/src/lib/stream.ts`
 - **问题描述**: 取消机制技术已实现（AbortController），但取消后 UX 体验可优化
 - **影响**: 用户体验有待优化
 - **建议**: 添加"一键重试"按钮、阶段回执、失败归因提示
 
-### L6. 部署架构统一
+### L7. 部署架构统一
 - **文件**: `Dockerfile`, `DEPLOY.md`
 - **问题描述**:
   - **Node.js 版本不一致**: DEPLOY.md 声明 18.0+，Dockerfile 使用 node:24-alpine
@@ -62,7 +77,7 @@
 - **影响**: 部署流程不清晰
 - **建议**: 统一 Node.js 版本、添加健康检查端点
 
-### L7. 国际化准备
+### L8. 国际化准备
 - **文件**: `frontend/src/lib/openrouter.ts`, 所有 `.tsx` 组件
 - **问题描述**:
   - **系统提示硬编码中文**: `ANALYZE_SYSTEM_PROMPT` 等完全硬编码中文
@@ -136,7 +151,8 @@
 ### 二、新引入问题
 
 #### 2.1 类型错误
-- 见"本轮5次提交交叉审查记录"中的 8 个 TypeScript 类型错误
+- ~~见"本轮5次提交交叉审查记录"中的 8 个 TypeScript 类型错误~~
+  - **状态**: 已修复（2026-04-30 修复：`validation.ts` 的 `required_error` 改为 `.refine()`；`vlmOutputSchema` 的 `conditions`/`goal` 在 schema 层面保持 `.optional()`，业务逻辑中检查其存在性；`GeoGebraViewer.tsx` 的 `remove` 类型调用修复）
 
 #### 2.2 逻辑错误（已修复）
 - ~~**[HIGH]** `middleware.ts` 第 62 行：CORS 源检查允许空 origin~~
@@ -170,6 +186,7 @@
 - `openrouter.test.ts`: 覆盖输入清理、JSON 解析（16 个测试）
 - `save-result/route.test.ts`: 覆盖保存、验证、大小限制（4 个测试）
 - `result/[id]/route.test.ts`: 覆盖获取、不存在、过期（3 个测试）
+- `useAnimation.test.ts`: 覆盖初始状态、播放/暂停/重置/步进/速度变更、组件卸载清理、边界情况（36 个测试）
 
 #### 4.2 未覆盖（需补充）
 - ~~`middleware.ts`: 无测试~~ → **已补充**（H1 修复中已添加 middleware.test.ts，19 个测试）
@@ -195,9 +212,9 @@
 
 | 优先级 | 问题 | 建议修复方案 |
 |--------|------|-------------|
-| P0 | `middleware.ts` 允许空 Origin | 移除 `&& origin` 条件，或添加 `!origin` 时拒绝 |
-| P0 | `ratelimit.ts` unknown IP 共享配额 | 为 unknown IP 设置独立限制或拒绝服务 |
-| P2 | 测试覆盖不足 | 补充 middleware、stream、fix-commands、generate-graphic 测试 |
+| P0 | ~~`middleware.ts` 允许空 Origin~~ | ~~移除 `&& origin` 条件，或添加 `!origin` 时拒绝~~ ✅ **已修复**（H4 修复中已改为 `if (!isAllowedOrigin)`，明确拒绝无 Origin 头的请求） |
+| P0 | ~~`ratelimit.ts` unknown IP 共享配额~~ | ~~为 unknown IP 设置独立限制或拒绝服务~~ ✅ **已修复**（H5 修复中已为 `unknown` IP 设置独立限制 3 次/分钟） |
+| P2 | 测试覆盖不足 | 补充 fix-commands、generate-graphic、page.tsx、useRealtimeGeoGebra 测试 |
 | P2 | 代码风格不一致 | 配置 ESLint/Prettier 规则自动统一 |
 
 ---
@@ -211,19 +228,22 @@
 > 审查日期: 2026-04-26  
 > 审查范围: H1-H5 修复提交  
 > 测试状态: 全部通过（133 tests passed）  
-> 类型检查: **8 个错误**
+> 类型检查: ~~**8 个错误**~~ → **0 个错误**（2026-04-30 已修复）
 
 ### 审查结论
 - 前 5 次提交对应问题均已按预期修复并已从问题清单移除。
-- 交叉审查过程中发现 **8 个 TypeScript 类型错误**，已记录如下，**本轮按要求不修复**。
+- ~~交叉审查过程中发现 **8 个 TypeScript 类型错误**，已记录如下，**本轮按要求不修复**。~~
+- **2026-04-30 更新**: 4 个 TypeScript 类型错误已修复（`validation.ts` required_error、`vlmOutputSchema` optional 冲突、`GeoGebraViewer.tsx` remove 调用）。
 - 未发现修复冲突、逻辑漏洞或新的运行时错误。
 
-### 新发现问题（待后续修复）
+### ~~新发现问题（待后续修复）~~
 
-#### [CRITICAL] TypeScript 类型错误（1 个）
+#### ~~[CRITICAL] TypeScript 类型错误（1 个）~~ ✅ 已修复
 
-**1. `validation.ts` - zod 选项参数错误**
-- **文件**: `frontend/src/lib/validation.ts:94`
-- **错误**: `Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: ... }'`
-- **原因**: 使用了 `required_error` 选项，但当前 zod 版本不支持此参数名（应为 `message` 或其他正确参数）
-- **影响**: 类型检查失败
+**~~1. `validation.ts` - zod 选项参数错误~~**
+- ~~**文件**: `frontend/src/lib/validation.ts:94`~~
+- ~~**错误**: `Object literal may only specify known properties, and 'required_error' does not exist in type '{ error?: ... }'`~~
+- ~~**原因**: 使用了 `required_error` 选项，但当前 zod 版本不支持此参数名（应为 `message` 或其他正确参数）~~
+- ~~**影响**: 类型检查失败~~
+- **修复日期**: 2026-04-30
+- **修复内容**: `required_error` 改为 `.refine()`；`vlmOutputSchema` 的 `conditions`/`goal` 在 schema 层面保持 `.optional()`，业务逻辑中检查其存在性；`GeoGebraViewer.tsx` 的 `remove` 类型调用修复
