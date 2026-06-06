@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { useAnimation } from './useAnimation';
 
 describe('useAnimation', () => {
@@ -105,14 +105,17 @@ describe('useAnimation', () => {
       const { result } = renderHook(() => useAnimation({ commandCount: 3 }));
       act(() => result.current.setAppletReady(true));
       act(() => result.current.handlePlay());
-      act(() => vi.advanceTimersByTime(2000));
-      // 此时 cmdIndex = 2（最后一个）
+      act(() => vi.advanceTimersByTime(3000));
+      // 此时 cmdIndex = 2（最后一个），animState = finished
       expect(result.current.cmdIndex).toBe(2);
+      expect(result.current.animState).toBe('finished');
 
       act(() => result.current.handlePlay());
       expect(result.current.cmdIndex).toBe(-1);
+      expect(result.current.animState).toBe('idle');
       act(() => vi.advanceTimersByTime(200));
       expect(result.current.cmdIndex).toBe(0);
+      expect(result.current.animState).toBe('playing');
     });
   });
 
@@ -134,7 +137,7 @@ describe('useAnimation', () => {
       expect(result.current.cmdIndex).toBe(1);
     });
 
-    it('idle 状态暂停不改变状态', () => {
+    it('idle 状态暂停会设置为 paused', () => {
       const { result } = renderHook(() => useAnimation({ commandCount: 5 }));
       act(() => result.current.handlePause());
       expect(result.current.animState).toBe('paused');
@@ -190,6 +193,14 @@ describe('useAnimation', () => {
     });
 
     it('步进不超出边界（下限 0）', () => {
+      const { result } = renderHook(() => useAnimation({ commandCount: 5 }));
+      act(() => result.current.setAppletReady(true));
+      act(() => result.current.handleStep(1));
+      act(() => result.current.handleStep(-1));
+      expect(result.current.cmdIndex).toBe(0);
+    });
+
+    it('初始状态反向步进保持 0', () => {
       const { result } = renderHook(() => useAnimation({ commandCount: 5 }));
       act(() => result.current.setAppletReady(true));
       act(() => result.current.handleStep(-1));
@@ -273,17 +284,17 @@ describe('useAnimation', () => {
   // ── 8. 边界情况 ────────────────────────────────────────────
 
   describe('边界情况', () => {
-    it('commandCount 为 0 时播放触发重播逻辑', () => {
+    it('commandCount 为 0 时播放不执行任何操作', () => {
       const { result } = renderHook(() => useAnimation({ commandCount: 0 }));
       act(() => result.current.setAppletReady(true));
       act(() => result.current.handlePlay());
-      // commandCount=0 时 cmdIndex(-1) >= commandCount-1(-1) 为 true，进入重播分支
-      // 先重置到 -1，200ms 后 timeout 里设置 cmdIndex=0，但 interval 不会启动
-      // 因为 timeout 回调里没有启动 interval 的代码，只是设置状态
+      // commandCount=0 时 handlePlay 入口直接 return，保持 idle 状态
       expect(result.current.cmdIndex).toBe(-1);
+      expect(result.current.animState).toBe('idle');
       act(() => vi.advanceTimersByTime(200));
-      expect(result.current.cmdIndex).toBe(0);
-      expect(result.current.animState).toBe('playing');
+      // 200ms 后仍应保持 idle，不会进入重播逻辑
+      expect(result.current.cmdIndex).toBe(-1);
+      expect(result.current.animState).toBe('idle');
     });
 
     it('commandCount 为 1 时播放后立即 finished', () => {
@@ -300,12 +311,36 @@ describe('useAnimation', () => {
       const { result } = renderHook(() => useAnimation({ commandCount: 5 }));
       act(() => result.current.setAppletReady(true));
       act(() => result.current.handlePlay());
-      // 第二次点击时 animState 已经是 playing，cmdIndex=0，不会触发重播，
-      // 但会重新设置 interval，导致 cmdIndex 跳到 1（因为 startIdx=0，nextIndex=1）
+      // 第一次点击后 cmdIndex=0
+      expect(result.current.cmdIndex).toBe(0);
+      // 第二次点击时 animState 已经是 playing，应该被忽略，cmdIndex 不会变化
       act(() => result.current.handlePlay());
-      expect(result.current.cmdIndex).toBe(1);
+      expect(result.current.cmdIndex).toBe(0);
       act(() => vi.advanceTimersByTime(1000));
-      expect(result.current.cmdIndex).toBe(2);
+      expect(result.current.cmdIndex).toBe(1);
+    });
+
+    it('finished 后重播等待期间再次点击 play 不会创建多个 timeout', () => {
+      const { result } = renderHook(() => useAnimation({ commandCount: 3 }));
+      act(() => result.current.setAppletReady(true));
+      act(() => result.current.handlePlay());
+      act(() => vi.advanceTimersByTime(3000));
+      expect(result.current.animState).toBe('finished');
+
+      // 第一次点击进入重播等待期
+      act(() => result.current.handlePlay());
+      expect(result.current.cmdIndex).toBe(-1);
+      expect(result.current.animState).toBe('idle');
+
+      // 在等待期间再次点击，应该被忽略
+      act(() => result.current.handlePlay());
+      expect(result.current.cmdIndex).toBe(-1);
+      expect(result.current.animState).toBe('idle');
+
+      // 只有第一个 timeout 生效
+      act(() => vi.advanceTimersByTime(200));
+      expect(result.current.cmdIndex).toBe(0);
+      expect(result.current.animState).toBe('playing');
     });
   });
 });
