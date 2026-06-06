@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { Step } from '@/types';
 
 /**
@@ -15,8 +15,6 @@ export function useRealtimeGeoGebra() {
     solution: Step[];
   } | null>(null);
   
-  // 使用 ref 跟踪已处理的内容长度，避免重复解析
-  const lastProcessedLengthRef = useRef(0);
   const lastCommandsRef = useRef<string[]>([]);
   const bufferRef = useRef('');
 
@@ -35,8 +33,8 @@ export function useRealtimeGeoGebra() {
     if (trimmed === '"' || trimmed === '",') return false;
     
     // 必须是赋值语句或函数调用格式
-    // 例如: A = (0, 0), s = Segment(A, B), SetColor(A, "Red")
-    const commandPattern = /^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*.+|^[a-zA-Z_][a-zA-Z0-9_]*\s*\(/;
+    // 例如: A = (0, 0), s = Segment(A, B), SetColor(A, "Red"), α = Angle(A, B, C)
+    const commandPattern = /^[\p{L}_][\p{L}\p{N}_]{0,99}\s*=\s*\S.*|^[\p{L}_][\p{L}\p{N}_]{0,99}\s*\(/u;
     return commandPattern.test(trimmed);
   }, []);
 
@@ -128,30 +126,34 @@ export function useRealtimeGeoGebra() {
 
   /**
    * 处理新的流式内容
+   * @returns 本次处理新增的命令数组
    */
-  const processStreamContent = useCallback((content: string) => {
+  const processStreamContent = useCallback((content: string): string[] => {
     // 更新缓冲区
     bufferRef.current = content;
-    
-    // 尝试解析完整 JSON（如果内容已经完成）
-    if (content.includes('}') && content.split('{').length > 1) {
-      tryParseJson(content);
-    }
-    
+
+    // 尝试解析完整 JSON（直接尝试解析，不依赖首尾字符判断）
+    tryParseJson(content);
+
     // 提取命令（只提取新增的部分）
     const allCommands = extractCommands(content);
-    
-    // 找出新增的命令
+
+    // 找出新增的命令（使用内容对比而非索引，避免重复或遗漏）
     const newCommands: string[] = [];
-    for (let i = lastCommandsRef.current.length; i < allCommands.length; i++) {
-      newCommands.push(allCommands[i]);
+    const prevLen = lastCommandsRef.current.length;
+    if (allCommands.length > prevLen) {
+      for (let i = prevLen; i < allCommands.length; i++) {
+        newCommands.push(allCommands[i]);
+      }
     }
-    
+
     // 如果有新命令，更新状态
     if (newCommands.length > 0) {
       lastCommandsRef.current = allCommands;
       setCommands(prev => [...prev, ...newCommands]);
     }
+
+    return newCommands;
   }, [extractCommands, tryParseJson]);
 
   /**
@@ -161,7 +163,6 @@ export function useRealtimeGeoGebra() {
     setCommands([]);
     setIsComplete(false);
     setParsedData(null);
-    lastProcessedLengthRef.current = 0;
     lastCommandsRef.current = [];
     bufferRef.current = '';
   }, []);
@@ -175,7 +176,6 @@ export function useRealtimeGeoGebra() {
 
   return {
     commands,
-    newCommands: commands.slice(lastCommandsRef.current.length - commands.length),
     isComplete,
     parsedData,
     processStreamContent,
