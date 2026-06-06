@@ -133,6 +133,28 @@ describe('streamRequest', () => {
       expect(result.content).toBe('');
     });
 
+    it('content 为空字符串时也应回调', async () => {
+      const chunks = [
+        encodeString('data: {"content":""}\n\n'),
+        encodeString('data: {"content":"A"}\n\n'),
+      ];
+      const mockFetch = vi.mocked(fetch);
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: createMockStream(chunks),
+        json: vi.fn(),
+      } as unknown as Response);
+
+      const onChunk = vi.fn();
+      const result = await streamRequest('https://api.example.com/stream', {}, onChunk);
+
+      expect(onChunk).toHaveBeenCalledTimes(2);
+      expect(onChunk).toHaveBeenNthCalledWith(1, '');
+      expect(onChunk).toHaveBeenNthCalledWith(2, 'A');
+      expect(result.content).toBe('A');
+    });
+
     it('处理多个 content 块连续发送', async () => {
       const chunks = [
         encodeString(
@@ -222,7 +244,7 @@ describe('streamRequest', () => {
       // 收到 error 后不再处理后续 chunk（因为直接 return）
     });
 
-    it('SSE JSON 解析失败时返回错误（开发环境保留警告）', async () => {
+    it('SSE JSON 解析失败时跳过该行并继续处理后续行（开发环境保留警告）', async () => {
       vi.stubEnv('NODE_ENV', 'development');
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -242,14 +264,15 @@ describe('streamRequest', () => {
       const result = await streamRequest('https://api.example.com/stream', {}, onChunk);
 
       expect(warnSpy).toHaveBeenCalledWith('[stream] SSE 数据解析失败:', 'not-json');
-      expect(onChunk).not.toHaveBeenCalled();
-      expect(result.content).toBe('');
-      expect(result.error).toBe('流式响应解析失败，请重试');
+      expect(onChunk).toHaveBeenCalledTimes(1);
+      expect(onChunk).toHaveBeenNthCalledWith(1, 'ok');
+      expect(result.content).toBe('ok');
+      expect(result.error).toBeUndefined();
 
       warnSpy.mockRestore();
     });
 
-    it('SSE JSON 解析失败时返回错误（生产环境不打印警告）', async () => {
+    it('SSE JSON 解析失败时跳过该行并继续处理后续行（生产环境不打印警告）', async () => {
       vi.stubEnv('NODE_ENV', 'production');
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -269,8 +292,10 @@ describe('streamRequest', () => {
       const result = await streamRequest('https://api.example.com/stream', {}, onChunk);
 
       expect(warnSpy).not.toHaveBeenCalled();
-      expect(result.content).toBe('');
-      expect(result.error).toBe('流式响应解析失败，请重试');
+      expect(onChunk).toHaveBeenCalledTimes(1);
+      expect(onChunk).toHaveBeenNthCalledWith(1, 'ok');
+      expect(result.content).toBe('ok');
+      expect(result.error).toBeUndefined();
 
       warnSpy.mockRestore();
     });
@@ -381,6 +406,49 @@ describe('streamRequest', () => {
 
       await streamRequest('https://api.example.com/stream', {}, vi.fn());
       expect(releaseLock).toHaveBeenCalled();
+    });
+
+    it('流结束时 buffer 残留无换行符的数据应被处理', async () => {
+      const chunks = [
+        encodeString('data: {"content":"Hello"}\n\ndata: {"content":" World"}'),
+      ];
+      const mockFetch = vi.mocked(fetch);
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: createMockStream(chunks),
+        json: vi.fn(),
+      } as unknown as Response);
+
+      const onChunk = vi.fn();
+      const result = await streamRequest('https://api.example.com/stream', {}, onChunk);
+
+      expect(onChunk).toHaveBeenCalledTimes(2);
+      expect(onChunk).toHaveBeenNthCalledWith(1, 'Hello');
+      expect(onChunk).toHaveBeenNthCalledWith(2, ' World');
+      expect(result.content).toBe('Hello World');
+      expect(result.error).toBeUndefined();
+    });
+
+    it('流结束时 buffer 残留无换行符的 error 数据应被处理', async () => {
+      const chunks = [
+        encodeString('data: {"content":" partial"}\n\ndata: {"error":"end error"}'),
+      ];
+      const mockFetch = vi.mocked(fetch);
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: createMockStream(chunks),
+        json: vi.fn(),
+      } as unknown as Response);
+
+      const onChunk = vi.fn();
+      const result = await streamRequest('https://api.example.com/stream', {}, onChunk);
+
+      expect(onChunk).toHaveBeenCalledTimes(1);
+      expect(onChunk).toHaveBeenNthCalledWith(1, ' partial');
+      expect(result.content).toBe(' partial');
+      expect(result.error).toBe('end error');
     });
   });
 });
