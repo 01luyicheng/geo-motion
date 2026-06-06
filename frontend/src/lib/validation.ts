@@ -20,7 +20,7 @@ export const imageDataUriSchema = z
   });
 
 /** 非空字符串（去空白后） */
-export const nonEmptyStringSchema = z.string().min(1, '内容不能为空').transform((s) => s.trim());
+export const nonEmptyStringSchema = z.string().transform((s) => s.trim()).pipe(z.string().min(1, '内容不能为空'));
 
 /** 可选的非空字符串 */
 export const optionalNonEmptyStringSchema = z
@@ -90,9 +90,10 @@ export const saveResultRequestSchema = z.object({
         ])
       ).max(200, '解答步骤数量超过最大限制').optional(),
       createdAt: z.string().max(64, '创建时间超过最大长度限制'),
-    },
-    { required_error: '未提供分析结果' }
-  ),
+    })
+    .refine((val) => val !== undefined && Object.keys(val).length > 0, {
+      message: '未提供分析结果',
+    }),
 });
 
 export type SaveResultRequestInput = z.infer<typeof saveResultRequestSchema>;
@@ -130,7 +131,7 @@ export type OpenRouterStreamChunk = z.infer<typeof openRouterStreamChunkSchema>;
 export const vlmOutputSchema = z.object({
   geogebra: z.string().min(1, 'geogebra 不能为空'),
   conditions: z.array(z.string()).optional(),
-  goal: z.string().min(1, 'goal 不能为空').optional(),
+  goal: z.string().optional(),
   solution: z.array(z.union([z.string(), z.object({ text: z.string(), commandIndices: z.array(z.number()), explanation: z.string().optional() })])).optional(),
 });
 
